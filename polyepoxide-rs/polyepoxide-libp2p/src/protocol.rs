@@ -1,6 +1,6 @@
 //! Protocol messages for Polyepoxide sync over libp2p.
 
-use polyepoxide_core::Key;
+use cid::Cid;
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_NAME: &str = "/polyepoxide/sync/0.1.0";
@@ -8,26 +8,26 @@ pub const PROTOCOL_NAME: &str = "/polyepoxide/sync/0.1.0";
 /// Request types for the sync protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
-    /// Get values for the given keys.
-    Get { keys: Vec<Key> },
-    /// Check which keys exist.
-    Has { keys: Vec<Key> },
-    /// Store values at the given keys.
-    Put { nodes: Vec<(Key, Vec<u8>)> },
+    /// Get values for the given CIDs.
+    Get { cids: Vec<Cid> },
+    /// Check which CIDs exist.
+    Has { cids: Vec<Cid> },
+    /// Store values at the given CIDs.
+    Put { nodes: Vec<(Cid, Vec<u8>)> },
 }
 
 /// Response types for the sync protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Response {
-    /// Response to Get: found nodes and missing keys.
+    /// Response to Get: found nodes and missing CIDs.
     Nodes {
-        found: Vec<(Key, Vec<u8>)>,
-        missing: Vec<Key>,
+        found: Vec<(Cid, Vec<u8>)>,
+        missing: Vec<Cid>,
     },
     /// Response to Has: presence flags in same order as request.
     Has { present: Vec<bool> },
-    /// Response to Put: keys that were stored.
-    Stored { keys: Vec<Key> },
+    /// Response to Put: CIDs that were stored.
+    Stored { cids: Vec<Cid> },
     /// Error response.
     Error { message: String },
 }
@@ -35,19 +35,19 @@ pub enum Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use polyepoxide_core::compute_cid;
 
     #[test]
     fn request_serialization_roundtrip() {
-        let key = Key::from_data(b"test");
-        let request = Request::Get { keys: vec![key] };
+        let cid = compute_cid(b"test");
+        let request = Request::Get { cids: vec![cid] };
 
-        let mut bytes = Vec::new();
-        ciborium::into_writer(&request, &mut bytes).unwrap();
+        let bytes = serde_ipld_dagcbor::to_vec(&request).unwrap();
+        let recovered: Request = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
 
-        let recovered: Request = ciborium::from_reader(&bytes[..]).unwrap();
-        if let Request::Get { keys } = recovered {
-            assert_eq!(keys.len(), 1);
-            assert_eq!(keys[0], key);
+        if let Request::Get { cids } = recovered {
+            assert_eq!(cids.len(), 1);
+            assert_eq!(cids[0], cid);
         } else {
             panic!("Expected Get request");
         }
@@ -55,19 +55,18 @@ mod tests {
 
     #[test]
     fn response_serialization_roundtrip() {
-        let key = Key::from_data(b"test");
+        let cid = compute_cid(b"test");
         let response = Response::Nodes {
-            found: vec![(key, b"data".to_vec())],
+            found: vec![(cid, b"data".to_vec())],
             missing: vec![],
         };
 
-        let mut bytes = Vec::new();
-        ciborium::into_writer(&response, &mut bytes).unwrap();
+        let bytes = serde_ipld_dagcbor::to_vec(&response).unwrap();
+        let recovered: Response = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
 
-        let recovered: Response = ciborium::from_reader(&bytes[..]).unwrap();
         if let Response::Nodes { found, missing } = recovered {
             assert_eq!(found.len(), 1);
-            assert_eq!(found[0].0, key);
+            assert_eq!(found[0].0, cid);
             assert_eq!(found[0].1, b"data".to_vec());
             assert!(missing.is_empty());
         } else {

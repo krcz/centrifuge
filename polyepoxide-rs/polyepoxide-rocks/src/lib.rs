@@ -2,7 +2,8 @@
 
 use std::path::Path;
 
-use polyepoxide_core::{Key, Store};
+use cid::Cid;
+use polyepoxide_core::Store;
 use rocksdb::{DB, Options};
 use thiserror::Error;
 
@@ -30,23 +31,24 @@ impl RocksStore {
 impl Store for RocksStore {
     type Error = RocksError;
 
-    fn get(&self, key: &Key) -> Result<Option<Vec<u8>>, Self::Error> {
-        Ok(self.db.get(key.as_bytes())?)
+    fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(self.db.get(cid.to_bytes())?)
     }
 
-    fn put(&self, key: &Key, value: &[u8]) -> Result<(), Self::Error> {
-        self.db.put(key.as_bytes(), value)?;
+    fn put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+        self.db.put(cid.to_bytes(), value)?;
         Ok(())
     }
 
-    fn has(&self, key: &Key) -> Result<bool, Self::Error> {
-        Ok(self.db.get_pinned(key.as_bytes())?.is_some())
+    fn has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+        Ok(self.db.get_pinned(cid.to_bytes())?.is_some())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use polyepoxide_core::compute_cid;
     use tempfile::TempDir;
 
     fn temp_store() -> (RocksStore, TempDir) {
@@ -58,11 +60,11 @@ mod tests {
     #[test]
     fn put_get() {
         let (store, _dir) = temp_store();
-        let key = Key::from_data(b"test");
+        let cid = compute_cid(b"test");
         let value = b"hello world";
 
-        store.put(&key, value).unwrap();
-        let retrieved = store.get(&key).unwrap();
+        store.put(&cid, value).unwrap();
+        let retrieved = store.get(&cid).unwrap();
 
         assert_eq!(retrieved, Some(value.to_vec()));
     }
@@ -70,9 +72,9 @@ mod tests {
     #[test]
     fn get_missing() {
         let (store, _dir) = temp_store();
-        let key = Key::from_data(b"nonexistent");
+        let cid = compute_cid(b"nonexistent");
 
-        let retrieved = store.get(&key).unwrap();
+        let retrieved = store.get(&cid).unwrap();
 
         assert_eq!(retrieved, None);
     }
@@ -80,29 +82,29 @@ mod tests {
     #[test]
     fn has() {
         let (store, _dir) = temp_store();
-        let key = Key::from_data(b"test");
+        let cid = compute_cid(b"test");
 
-        assert!(!store.has(&key).unwrap());
+        assert!(!store.has(&cid).unwrap());
 
-        store.put(&key, b"value").unwrap();
+        store.put(&cid, b"value").unwrap();
 
-        assert!(store.has(&key).unwrap());
+        assert!(store.has(&cid).unwrap());
     }
 
     #[test]
     fn persistence() {
         let dir = TempDir::new().unwrap();
-        let key = Key::from_data(b"persistent");
+        let cid = compute_cid(b"persistent");
         let value = b"data survives restart";
 
         {
             let store = RocksStore::open(dir.path()).unwrap();
-            store.put(&key, value).unwrap();
+            store.put(&cid, value).unwrap();
         }
 
         {
             let store = RocksStore::open(dir.path()).unwrap();
-            let retrieved = store.get(&key).unwrap();
+            let retrieved = store.get(&cid).unwrap();
             assert_eq!(retrieved, Some(value.to_vec()));
         }
     }

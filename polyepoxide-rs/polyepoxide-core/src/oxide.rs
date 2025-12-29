@@ -1,15 +1,24 @@
+use cid::Cid;
+use multihash_codetable::{Code, MultihashDigest};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt::Debug;
 
-use crate::key::Key;
+use crate::bond::Bond;
 use crate::schema::Structure;
 
-use crate::bond::Bond;
+/// DAG-CBOR codec code (0x71).
+pub const DAG_CBOR_CODEC: u64 = 0x71;
+
+/// Computes a CID for DAG-CBOR encoded data using Blake3.
+pub fn compute_cid(data: &[u8]) -> Cid {
+    let hash = Code::Blake3_256.digest(data);
+    Cid::new_v1(DAG_CBOR_CODEC, hash)
+}
 
 /// A visitor for traversing bonds in an oxide.
 pub trait BondVisitor {
-    /// Visits a bond key with type information erased.
-    fn visit_bond(&mut self, key: &Key);
+    /// Visits a bond CID with type information erased.
+    fn visit_bond(&mut self, cid: &Cid);
 }
 
 /// A mapper for transforming bonds in an oxide.
@@ -39,23 +48,20 @@ pub trait Oxide: Debug + Serialize + DeserializeOwned + Clone + Send + Sync + 's
     /// Used to recursively add nested bond targets when adding to a solvent.
     fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self;
 
-    /// Computes the content-addressed key (hash) of this oxide.
-    fn compute_key(&self) -> Key {
-        let mut data = Vec::new();
-        ciborium::into_writer(self, &mut data).expect("serialization should not fail");
-        Key::from_data(&data)
+    /// Computes the content-addressed CID of this oxide.
+    fn compute_cid(&self) -> Cid {
+        let data = self.to_bytes();
+        compute_cid(&data)
     }
 
-    /// Serializes this oxide to CBOR bytes.
+    /// Serializes this oxide to DAG-CBOR bytes.
     fn to_bytes(&self) -> Vec<u8> {
-        let mut data = Vec::new();
-        ciborium::into_writer(self, &mut data).expect("serialization should not fail");
-        data
+        serde_ipld_dagcbor::to_vec(self).expect("serialization should not fail")
     }
 
-    /// Deserializes an oxide from CBOR bytes.
-    fn from_bytes(data: &[u8]) -> Result<Self, ciborium::de::Error<std::io::Error>> {
-        ciborium::from_reader(data)
+    /// Deserializes an oxide from DAG-CBOR bytes.
+    fn from_bytes(data: &[u8]) -> Result<Self, serde_ipld_dagcbor::DecodeError<std::convert::Infallible>> {
+        serde_ipld_dagcbor::from_slice(data)
     }
 }
 
@@ -238,10 +244,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn primitive_key_deterministic() {
-        let k1 = 42u64.compute_key();
-        let k2 = 42u64.compute_key();
-        assert_eq!(k1, k2);
+    fn primitive_cid_deterministic() {
+        let c1 = 42u64.compute_cid();
+        let c2 = 42u64.compute_cid();
+        assert_eq!(c1, c2);
     }
 
     #[test]

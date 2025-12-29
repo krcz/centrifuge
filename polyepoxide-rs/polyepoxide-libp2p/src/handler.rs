@@ -7,15 +7,15 @@ use crate::protocol::{Request, Response};
 /// Handle an incoming request against a local store.
 pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Response {
     match request {
-        Request::Get { keys } => match store.async_get_many(&keys).await {
+        Request::Get { cids } => match store.async_get_many(&cids).await {
             Ok(results) => {
                 let mut found = Vec::new();
                 let mut missing = Vec::new();
 
-                for (key, result) in keys.into_iter().zip(results) {
+                for (cid, result) in cids.into_iter().zip(results) {
                     match result {
-                        Some(data) => found.push((key, data)),
-                        None => missing.push(key),
+                        Some(data) => found.push((cid, data)),
+                        None => missing.push(cid),
                     }
                 }
 
@@ -26,7 +26,7 @@ pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Respo
             },
         },
 
-        Request::Has { keys } => match store.async_has_many(&keys).await {
+        Request::Has { cids } => match store.async_has_many(&cids).await {
             Ok(present) => Response::Has { present },
             Err(e) => Response::Error {
                 message: e.to_string(),
@@ -37,7 +37,7 @@ pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Respo
             let refs: Vec<_> = nodes.iter().map(|(k, v)| (k, v.as_slice())).collect();
             match store.async_put_many(&refs).await {
                 Ok(()) => Response::Stored {
-                    keys: nodes.into_iter().map(|(k, _)| k).collect(),
+                    cids: nodes.into_iter().map(|(k, _)| k).collect(),
                 },
                 Err(e) => Response::Error {
                     message: e.to_string(),
@@ -50,19 +50,19 @@ pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Respo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polyepoxide_core::{Key, MemoryStore, Store};
+    use polyepoxide_core::{compute_cid, MemoryStore, Store};
 
     #[tokio::test]
     async fn handle_get_found() {
         let store = MemoryStore::new();
-        let key = Key::from_data(b"test");
-        store.put(&key, b"data").unwrap();
+        let cid = compute_cid(b"test");
+        store.put(&cid, b"data").unwrap();
 
-        let response = handle_request(&store, Request::Get { keys: vec![key] }).await;
+        let response = handle_request(&store, Request::Get { cids: vec![cid] }).await;
 
         if let Response::Nodes { found, missing } = response {
             assert_eq!(found.len(), 1);
-            assert_eq!(found[0].0, key);
+            assert_eq!(found[0].0, cid);
             assert_eq!(found[0].1, b"data");
             assert!(missing.is_empty());
         } else {
@@ -73,14 +73,14 @@ mod tests {
     #[tokio::test]
     async fn handle_get_missing() {
         let store = MemoryStore::new();
-        let key = Key::from_data(b"missing");
+        let cid = compute_cid(b"missing");
 
-        let response = handle_request(&store, Request::Get { keys: vec![key] }).await;
+        let response = handle_request(&store, Request::Get { cids: vec![cid] }).await;
 
         if let Response::Nodes { found, missing } = response {
             assert!(found.is_empty());
             assert_eq!(missing.len(), 1);
-            assert_eq!(missing[0], key);
+            assert_eq!(missing[0], cid);
         } else {
             panic!("Expected Nodes response");
         }
@@ -89,14 +89,14 @@ mod tests {
     #[tokio::test]
     async fn handle_has() {
         let store = MemoryStore::new();
-        let key1 = Key::from_data(b"exists");
-        let key2 = Key::from_data(b"missing");
-        store.put(&key1, b"data").unwrap();
+        let cid1 = compute_cid(b"exists");
+        let cid2 = compute_cid(b"missing");
+        store.put(&cid1, b"data").unwrap();
 
         let response = handle_request(
             &store,
             Request::Has {
-                keys: vec![key1, key2],
+                cids: vec![cid1, cid2],
             },
         )
         .await;
@@ -111,23 +111,23 @@ mod tests {
     #[tokio::test]
     async fn handle_put() {
         let store = MemoryStore::new();
-        let key = Key::from_data(b"new");
+        let cid = compute_cid(b"new");
 
         let response = handle_request(
             &store,
             Request::Put {
-                nodes: vec![(key, b"value".to_vec())],
+                nodes: vec![(cid, b"value".to_vec())],
             },
         )
         .await;
 
-        if let Response::Stored { keys } = response {
-            assert_eq!(keys, vec![key]);
+        if let Response::Stored { cids } = response {
+            assert_eq!(cids, vec![cid]);
         } else {
             panic!("Expected Stored response");
         }
 
         // Verify it was actually stored
-        assert_eq!(store.get(&key).unwrap(), Some(b"value".to_vec()));
+        assert_eq!(store.get(&cid).unwrap(), Some(b"value".to_vec()));
     }
 }

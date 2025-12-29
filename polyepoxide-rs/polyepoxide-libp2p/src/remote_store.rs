@@ -2,9 +2,10 @@
 
 use std::collections::HashMap;
 
+use cid::Cid;
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
-use polyepoxide_core::{AsyncStore, Key};
+use polyepoxide_core::AsyncStore;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::protocol::{Request, Response};
@@ -78,54 +79,54 @@ impl RemoteStore {
 impl AsyncStore for RemoteStore {
     type Error = RemoteStoreError;
 
-    async fn async_get(&self, key: &Key) -> Result<Option<Vec<u8>>, Self::Error> {
-        let results = self.async_get_many(&[*key]).await?;
+    async fn async_get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+        let results = self.async_get_many(&[*cid]).await?;
         Ok(results.into_iter().next().flatten())
     }
 
-    async fn async_get_many(&self, keys: &[Key]) -> Result<Vec<Option<Vec<u8>>>, Self::Error> {
+    async fn async_get_many(&self, cids: &[Cid]) -> Result<Vec<Option<Vec<u8>>>, Self::Error> {
         let response = self
             .send_request(Request::Get {
-                keys: keys.to_vec(),
+                cids: cids.to_vec(),
             })
             .await?;
 
         match response {
             Response::Nodes { found, missing: _ } => {
-                let found_map: HashMap<Key, Vec<u8>> = found.into_iter().collect();
-                Ok(keys.iter().map(|k| found_map.get(k).cloned()).collect())
+                let found_map: HashMap<Cid, Vec<u8>> = found.into_iter().collect();
+                Ok(cids.iter().map(|c| found_map.get(c).cloned()).collect())
             }
             Response::Error { message } => Err(RemoteStoreError::Remote(message)),
             _ => Err(RemoteStoreError::UnexpectedResponse),
         }
     }
 
-    async fn async_put(&self, key: &Key, value: &[u8]) -> Result<(), Self::Error> {
-        self.async_put_many(&[(key, value)]).await
+    async fn async_put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+        self.async_put_many(&[(cid, value)]).await
     }
 
-    async fn async_put_many(&self, nodes: &[(&Key, &[u8])]) -> Result<(), Self::Error> {
-        let nodes_owned: Vec<(Key, Vec<u8>)> =
+    async fn async_put_many(&self, nodes: &[(&Cid, &[u8])]) -> Result<(), Self::Error> {
+        let nodes_owned: Vec<(Cid, Vec<u8>)> =
             nodes.iter().map(|(k, v)| (**k, v.to_vec())).collect();
 
         let response = self.send_request(Request::Put { nodes: nodes_owned }).await?;
 
         match response {
-            Response::Stored { keys: _ } => Ok(()),
+            Response::Stored { cids: _ } => Ok(()),
             Response::Error { message } => Err(RemoteStoreError::Remote(message)),
             _ => Err(RemoteStoreError::UnexpectedResponse),
         }
     }
 
-    async fn async_has(&self, key: &Key) -> Result<bool, Self::Error> {
-        let results = self.async_has_many(&[*key]).await?;
+    async fn async_has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+        let results = self.async_has_many(&[*cid]).await?;
         Ok(results.into_iter().next().unwrap_or(false))
     }
 
-    async fn async_has_many(&self, keys: &[Key]) -> Result<Vec<bool>, Self::Error> {
+    async fn async_has_many(&self, cids: &[Cid]) -> Result<Vec<bool>, Self::Error> {
         let response = self
             .send_request(Request::Has {
-                keys: keys.to_vec(),
+                cids: cids.to_vec(),
             })
             .await?;
 

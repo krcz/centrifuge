@@ -19,7 +19,7 @@
 //! let remote = RemoteStore::new(peer_id, command_tx);
 //!
 //! // Pull data from remote to local
-//! pull(&remote, &local_store, value_key, schema_key).await?;
+//! pull(&remote, &local_store, value_cid, schema_cid).await?;
 //! ```
 
 mod codec;

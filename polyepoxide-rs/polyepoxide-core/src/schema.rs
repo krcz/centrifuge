@@ -299,21 +299,21 @@ impl PartialEq for Structure {
             (Structure::Int(a), Structure::Int(b)) => a == b,
             (Structure::Float(a), Structure::Float(b)) => a == b,
             (Structure::Unit, Structure::Unit) => true,
-            (Structure::Sequence(a), Structure::Sequence(b)) => a.key() == b.key(),
+            (Structure::Sequence(a), Structure::Sequence(b)) => a.cid() == b.cid(),
             (Structure::Tuple(a), Structure::Tuple(b)) => {
-                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.key() == y.key())
+                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.cid() == y.cid())
             }
             (Structure::Record(a), Structure::Record(b)) => {
                 a.len() == b.len()
                     && a.iter()
                         .zip(b.iter())
-                        .all(|((k1, v1), (k2, v2))| k1 == k2 && v1.key() == v2.key())
+                        .all(|((k1, v1), (k2, v2))| k1 == k2 && v1.cid() == v2.cid())
             }
             (Structure::Tagged(a), Structure::Tagged(b)) => {
                 a.len() == b.len()
                     && a.iter()
                         .zip(b.iter())
-                        .all(|((k1, v1), (k2, v2))| k1 == k2 && v1.key() == v2.key())
+                        .all(|((k1, v1), (k2, v2))| k1 == k2 && v1.cid() == v2.cid())
             }
             (Structure::Enum(a), Structure::Enum(b)) => a == b,
             (
@@ -325,7 +325,7 @@ impl PartialEq for Structure {
                     key: k2,
                     value: v2,
                 },
-            ) => k1.key() == k2.key() && v1.key() == v2.key(),
+            ) => k1.cid() == k2.cid() && v1.cid() == v2.cid(),
             (
                 Structure::OrderedMap {
                     key: k1,
@@ -335,8 +335,8 @@ impl PartialEq for Structure {
                     key: k2,
                     value: v2,
                 },
-            ) => k1.key() == k2.key() && v1.key() == v2.key(),
-            (Structure::Bond(a), Structure::Bond(b)) => a.key() == b.key(),
+            ) => k1.cid() == k2.cid() && v1.cid() == v2.cid(),
+            (Structure::Bond(a), Structure::Bond(b)) => a.cid() == b.cid(),
             (Structure::SelfRef(a), Structure::SelfRef(b)) => a == b,
             _ => false,
         }
@@ -428,8 +428,8 @@ mod tests {
         let s2 = Structure::Bool;
         let s3 = Structure::Unicode;
 
-        assert_eq!(s1.compute_key(), s2.compute_key());
-        assert_ne!(s1.compute_key(), s3.compute_key());
+        assert_eq!(s1.compute_cid(), s2.compute_cid());
+        assert_ne!(s1.compute_cid(), s3.compute_cid());
     }
 
     #[test]
@@ -439,9 +439,9 @@ mod tests {
         let s3 = Structure::sequence(Structure::Bool);
 
         // Same structure should produce same key
-        assert_eq!(s1.compute_key(), s2.compute_key());
+        assert_eq!(s1.compute_cid(), s2.compute_cid());
         // Different inner type should produce different key
-        assert_ne!(s1.compute_key(), s3.compute_key());
+        assert_ne!(s1.compute_cid(), s3.compute_cid());
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
         let recovered: Structure = Oxide::from_bytes(&bytes).unwrap();
 
         // After roundtrip, bonds are unresolved but keys should match
-        assert_eq!(original.compute_key(), recovered.compute_key());
+        assert_eq!(original.compute_cid(), recovered.compute_cid());
     }
 
     #[test]
@@ -474,6 +474,6 @@ mod tests {
         let s2 = Structure::sequence(inner);
 
         // Both should have the same key
-        assert_eq!(s1.compute_key(), s2.compute_key());
+        assert_eq!(s1.compute_cid(), s2.compute_cid());
     }
 }

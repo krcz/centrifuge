@@ -1,10 +1,10 @@
+use cid::Cid;
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::bond::Bond;
 use crate::cell::Cell;
-use crate::key::Key;
 use crate::oxide::{BondMapper, Oxide};
 use crate::schema::Structure;
 use crate::store::Store;
@@ -13,9 +13,9 @@ use crate::store::Store;
 #[derive(Debug, thiserror::Error)]
 pub enum SolventError {
     #[error("oxide not found: {0}")]
-    NotFound(Key),
-    #[error("type mismatch for key {0}")]
-    TypeMismatch(Key),
+    NotFound(Cid),
+    #[error("type mismatch for CID {0}")]
+    TypeMismatch(Cid),
 }
 
 /// Solvent manages oxides in memory and coordinates with backing stores.
@@ -29,7 +29,7 @@ pub enum SolventError {
 ///
 /// Future: will coordinate with disk/remote stores for loading.
 pub struct Solvent {
-    cells: HashMap<Key, Arc<dyn Any + Send + Sync>>,
+    cells: HashMap<Cid, Arc<dyn Any + Send + Sync>>,
 }
 
 impl Solvent {
@@ -42,16 +42,16 @@ impl Solvent {
 
     /// Adds an oxide to the solvent, returning its cell.
     ///
-    /// If an oxide with the same key already exists, returns the existing cell.
+    /// If an oxide with the same CID already exists, returns the existing cell.
     /// All nested bonds are recursively added to the solvent, achieving
     /// deduplication of shared sub-structures.
     pub fn add<T: Oxide>(&mut self, value: T) -> Arc<Cell<T>> {
-        // Compute key first - this is the same whether bonds are resolved or not,
-        // since bonds serialize to just their key
-        let key = value.compute_key();
+        // Compute CID first - this is the same whether bonds are resolved or not,
+        // since bonds serialize to just their CID
+        let cid = value.compute_cid();
 
         // Check if already exists - return existing cell
-        if let Some(existing) = self.cells.get(&key) {
+        if let Some(existing) = self.cells.get(&cid) {
             if let Some(cell) = existing.clone().downcast::<Cell<T>>().ok() {
                 return cell;
             }
@@ -63,8 +63,8 @@ impl Solvent {
         let value = value.map_bonds(&mut SolventBondMapper { solvent: self });
 
         // Create and store the cell
-        let cell = Arc::new(Cell::with_key(value, key));
-        self.cells.insert(key, cell.clone());
+        let cell = Arc::new(Cell::with_cid(value, cid));
+        self.cells.insert(cid, cell.clone());
         cell
     }
 
@@ -74,16 +74,16 @@ impl Solvent {
         Bond::from_cell(cell)
     }
 
-    /// Gets an oxide by key, if it exists and has the correct type.
-    pub fn get<T: Oxide>(&self, key: &Key) -> Option<Arc<Cell<T>>> {
+    /// Gets an oxide by CID, if it exists and has the correct type.
+    pub fn get<T: Oxide>(&self, cid: &Cid) -> Option<Arc<Cell<T>>> {
         self.cells
-            .get(key)
+            .get(cid)
             .and_then(|any| any.clone().downcast::<Cell<T>>().ok())
     }
 
-    /// Checks if an oxide with the given key exists.
-    pub fn contains(&self, key: &Key) -> bool {
-        self.cells.contains_key(key)
+    /// Checks if an oxide with the given CID exists.
+    pub fn contains(&self, cid: &Cid) -> bool {
+        self.cells.contains_key(cid)
     }
 
     /// Returns the number of oxides in the solvent.
@@ -111,8 +111,8 @@ impl Solvent {
     pub fn resolve<T: Oxide>(&self, bond: &Bond<T>) -> Bond<T> {
         match bond {
             Bond::Resolved(_) => bond.clone(),
-            Bond::Unresolved(key) => {
-                if let Some(cell) = self.get::<T>(key) {
+            Bond::Unresolved(cid) => {
+                if let Some(cell) = self.get::<T>(cid) {
                     Bond::Resolved(cell)
                 } else {
                     bond.clone()
@@ -124,12 +124,12 @@ impl Solvent {
     /// Persists a cell and all its transitive bond dependencies to a store.
     ///
     /// Also persists the schema tree for the value's type.
-    /// Returns the value key and schema key.
+    /// Returns the value CID and schema CID.
     pub fn persist_cell<T: Oxide, S: Store>(
         &self,
         cell: &Cell<T>,
         store: &S,
-    ) -> Result<(Key, Key), S::Error> {
+    ) -> Result<(Cid, Cid), S::Error> {
         let mut visited = HashSet::new();
 
         // Persist the schema tree first
@@ -137,21 +137,21 @@ impl Solvent {
         let mut schema_solvent = Solvent::new();
         let schema = T::schema();
         let schema_cell = schema_solvent.add(schema);
-        let schema_key = schema_cell.key();
+        let schema_cid = schema_cell.cid();
 
         // Persist all schemas from the solvent
-        for (key, any_cell) in &schema_solvent.cells {
+        for (cid, any_cell) in &schema_solvent.cells {
             if let Some(structure_cell) = any_cell.clone().downcast::<Cell<Structure>>().ok() {
                 let bytes = structure_cell.value().to_bytes();
-                store.put(key, &bytes)?;
-                visited.insert(*key);
+                store.put(cid, &bytes)?;
+                visited.insert(*cid);
             }
         }
 
         // Persist the value and all bond dependencies
         self.persist_value(cell.value(), store, &mut visited)?;
 
-        Ok((cell.key(), schema_key))
+        Ok((cell.cid(), schema_cid))
     }
 
     /// Persists a value and all its bond dependencies.
@@ -160,13 +160,13 @@ impl Solvent {
         &self,
         value: &T,
         store: &S,
-        visited: &mut HashSet<Key>,
+        visited: &mut HashSet<Cid>,
     ) -> Result<(), S::Error> {
-        let key = value.compute_key();
-        if visited.contains(&key) {
+        let cid = value.compute_cid();
+        if visited.contains(&cid) {
             return Ok(());
         }
-        visited.insert(key);
+        visited.insert(cid);
 
         // First persist all bond dependencies (children before parent)
         let mut mapper = PersistingMapper {
@@ -183,7 +183,7 @@ impl Solvent {
 
         // Then persist this value
         let bytes = value.to_bytes();
-        store.put(&key, &bytes)?;
+        store.put(&cid, &bytes)?;
 
         Ok(())
     }
@@ -203,13 +203,13 @@ struct SolventBondMapper<'a> {
 impl BondMapper for SolventBondMapper<'_> {
     fn map_bond<T: Oxide>(&mut self, bond: Bond<T>) -> Bond<T> {
         match bond {
-            Bond::Unresolved(key) => {
+            Bond::Unresolved(cid) => {
                 // Try to resolve by looking up in the solvent
-                if let Some(cell) = self.solvent.get::<T>(&key) {
+                if let Some(cell) = self.solvent.get::<T>(&cid) {
                     Bond::from_cell(cell)
                 } else {
                     // Not found - keep as unresolved
-                    Bond::Unresolved(key)
+                    Bond::Unresolved(cid)
                 }
             }
             Bond::Resolved(cell) => {
@@ -226,7 +226,7 @@ impl BondMapper for SolventBondMapper<'_> {
 struct PersistingMapper<'a, S: Store> {
     solvent: &'a Solvent,
     store: &'a S,
-    visited: &'a mut HashSet<Key>,
+    visited: &'a mut HashSet<Cid>,
     error: Option<S::Error>,
 }
 
@@ -236,16 +236,16 @@ impl<S: Store> BondMapper for PersistingMapper<'_, S> {
             return bond;
         }
 
-        let key = bond.key();
-        if self.visited.contains(&key) {
+        let cid = bond.cid();
+        if self.visited.contains(&cid) {
             return bond;
         }
-        self.visited.insert(key);
+        self.visited.insert(cid);
 
         // Get the cell from solvent and persist it
-        if let Some(cell) = self.solvent.get::<T>(&key) {
+        if let Some(cell) = self.solvent.get::<T>(&cid) {
             let bytes = cell.value().to_bytes();
-            if let Err(e) = self.store.put(&key, &bytes) {
+            if let Err(e) = self.store.put(&cid, &bytes) {
                 self.error = Some(e);
                 return bond;
             }
@@ -261,6 +261,7 @@ impl<S: Store> BondMapper for PersistingMapper<'_, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oxide::compute_cid;
     use crate::schema::Structure;
 
     #[test]
@@ -272,8 +273,8 @@ mod tests {
         assert_eq!(cell.value(), &value);
         assert_eq!(solvent.len(), 1);
 
-        // Get by key
-        let retrieved = solvent.get::<String>(&cell.key()).unwrap();
+        // Get by CID
+        let retrieved = solvent.get::<String>(&cell.cid()).unwrap();
         assert_eq!(retrieved.value(), &value);
     }
 
@@ -285,8 +286,8 @@ mod tests {
         let cell1 = solvent.add(value.clone());
         let cell2 = solvent.add(value.clone());
 
-        // Same key, same cell (Arc pointer equality)
-        assert_eq!(cell1.key(), cell2.key());
+        // Same CID, same cell (Arc pointer equality)
+        assert_eq!(cell1.cid(), cell2.cid());
         assert!(Arc::ptr_eq(&cell1, &cell2));
         assert_eq!(solvent.len(), 1);
     }
@@ -315,9 +316,9 @@ mod tests {
     fn solvent_resolve_existing() {
         let mut solvent = Solvent::new();
         let cell = solvent.add("target".to_string());
-        let key = cell.key();
+        let cid = cell.cid();
 
-        let unresolved: Bond<String> = Bond::from_key(key);
+        let unresolved: Bond<String> = Bond::from_cid(cid);
         assert!(!unresolved.is_resolved());
 
         let resolved = solvent.resolve(&unresolved);
@@ -328,8 +329,8 @@ mod tests {
     #[test]
     fn solvent_resolve_missing() {
         let solvent = Solvent::new();
-        let fake_key = Key::from_data(b"nonexistent");
-        let unresolved: Bond<String> = Bond::from_key(fake_key);
+        let fake_cid = compute_cid(b"nonexistent");
+        let unresolved: Bond<String> = Bond::from_cid(fake_cid);
 
         let still_unresolved = solvent.resolve(&unresolved);
         assert!(!still_unresolved.is_resolved());
@@ -351,8 +352,8 @@ mod tests {
         // The inner Unicode should also be in the solvent
         if let Structure::Sequence(inner_bond) = cell.value() {
             assert!(inner_bond.is_resolved());
-            let inner_key = inner_bond.key();
-            assert!(solvent.contains(&inner_key));
+            let inner_cid = inner_bond.cid();
+            assert!(solvent.contains(&inner_cid));
         } else {
             panic!("Expected Sequence");
         }

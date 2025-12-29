@@ -1,42 +1,42 @@
+use cid::Cid;
 use std::sync::OnceLock;
 
-use crate::key::Key;
 use crate::oxide::Oxide;
 
-/// A cell wraps an oxide value and caches its computed hash.
+/// A cell wraps an oxide value and caches its computed CID.
 ///
-/// The hash is computed lazily on first access via `key()`, then cached
+/// The CID is computed lazily on first access via `cid()`, then cached
 /// for subsequent calls. This allows building large trees without computing
-/// hashes until persistence or when the key is actually needed.
+/// hashes until persistence or when the CID is actually needed.
 pub struct Cell<T: Oxide> {
     value: T,
-    key: OnceLock<Key>,
+    cid: OnceLock<Cid>,
 }
 
 impl<T: Oxide> Cell<T> {
     /// Creates a new cell containing the given value.
-    /// The hash is not computed until `key()` is called.
+    /// The CID is not computed until `cid()` is called.
     pub fn new(value: T) -> Self {
         Cell {
             value,
-            key: OnceLock::new(),
+            cid: OnceLock::new(),
         }
     }
 
-    /// Creates a new cell with a pre-computed key.
-    /// Use this when deserializing or when the key is already known.
-    pub fn with_key(value: T, key: Key) -> Self {
+    /// Creates a new cell with a pre-computed CID.
+    /// Use this when deserializing or when the CID is already known.
+    pub fn with_cid(value: T, cid: Cid) -> Self {
         let cell = Cell {
             value,
-            key: OnceLock::new(),
+            cid: OnceLock::new(),
         };
-        let _ = cell.key.set(key);
+        let _ = cell.cid.set(cid);
         cell
     }
 
-    /// Returns the content-addressed key, computing it if necessary.
-    pub fn key(&self) -> Key {
-        *self.key.get_or_init(|| self.value.compute_key())
+    /// Returns the content-addressed CID, computing it if necessary.
+    pub fn cid(&self) -> Cid {
+        *self.cid.get_or_init(|| self.value.compute_cid())
     }
 
     /// Returns a reference to the contained value.
@@ -54,7 +54,7 @@ impl<T: Oxide> std::fmt::Debug for Cell<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Cell")
             .field("value", &self.value)
-            .field("key", &self.key.get())
+            .field("cid", &self.cid.get())
             .finish()
     }
 }
@@ -66,18 +66,18 @@ mod tests {
     #[test]
     fn cell_lazy_hash() {
         let cell = Cell::new(42u64);
-        // Key not computed yet (internal detail, but we can check via debug)
-        let k1 = cell.key();
-        let k2 = cell.key();
-        assert_eq!(k1, k2);
+        // CID not computed yet (internal detail, but we can check via debug)
+        let c1 = cell.cid();
+        let c2 = cell.cid();
+        assert_eq!(c1, c2);
     }
 
     #[test]
-    fn cell_with_precomputed_key() {
+    fn cell_with_precomputed_cid() {
         let value = "test".to_string();
-        let expected_key = value.compute_key();
-        let cell = Cell::with_key(value.clone(), expected_key);
-        assert_eq!(cell.key(), expected_key);
+        let expected_cid = value.compute_cid();
+        let cell = Cell::with_cid(value.clone(), expected_cid);
+        assert_eq!(cell.cid(), expected_cid);
     }
 
     #[test]

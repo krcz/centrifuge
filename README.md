@@ -8,21 +8,22 @@ Polyepoxide is a blockchain-inspired synchronization database built on Merkle DA
 
 ### Merkle DAG with Structured Data
 
-Data is organized as a directed acyclic graph where each node is identified by the Blake3 hash of its CBOR-serialized content. This enables deduplication, trustless verification, and natural caching — identical values yield identical hashes regardless of when or where they were created.
+Data is organized as a directed acyclic graph where each node is identified by a CID (Content Identifier) computed from its DAG-CBOR serialized content using Blake3 multihash. Polyepoxide builds on IPLD for content addressing and serialization, adding WIT-compatible type precision and semantic validation through refinement predicates. This enables deduplication, trustless verification, and natural caching — identical values yield identical CIDs regardless of when or where they were created.
 
 Unlike self-describing formats, Polyepoxide stores schemas separately in the DAG. Schemas and data are traversed in parallel (a "zipped" approach), keeping serialized data compact while preserving full type information. Schema types map directly to programming language constructs: sized integers (u8 through u64, i8 through i64), records, enums, tagged unions, and typed references (bonds) that enable lazy loading across DAG boundaries.
 
 **Prototype status:** Core data model implemented in Rust. Schema types, CBOR serialization, and Cell/Bond/Solvent abstractions complete.
 
 **Prior art:**
-- *[IPLD](https://ipld.io/)*: Both use content-addressed DAGs. IPLD accepts a wide range of formats and uses unbounded integers. Polyepoxide focuses on tight programming language integration with bit-sized types and direct Rust/TypeScript mappings.
+- *[IPLD](https://ipld.io/)*: Polyepoxide builds on IPLD, using DAG-CBOR encoding and CIDs with Blake3 multihash. IPLD provides the content-addressing foundation; Polyepoxide adds a semantic layer with WIT-compatible types (sized integers, typed collections) and refinement predicates for validation. IPLD Schemas can be derived from Polyepoxide schemas for ecosystem tooling.
+- *[WIT (WebAssembly Interface Types)](https://component-model.bytecodealliance.org/design/wit.html)*: Polyepoxide's type system is designed to map directly to WIT, enabling seamless integration with the WebAssembly Component Model. WIT provides the target type semantics (sized integers, records, variants, resources) that Polyepoxide refines from IPLD's permissive data model.
 - *[Git objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)*: Git uses content addressing for blobs/trees/commits. Polyepoxide extends this to arbitrary structured data with schema validation.
 - *[Ceramic](https://ceramic.network/)*/*[ComposeDB](https://composedb.js.org/)*: GraphQL schemas over IPLD with DID auth and blockchain anchoring. More opinionated than IPLD; requires consensus Polyepoxide avoids.
 - *[Datomic](https://www.datomic.com/)*: Schema-as-data pattern storing attribute definitions as immutable datoms. Enables time-travel queries across schema versions. Datomic relies on a centralized Transactor for serialization; Polyepoxide is peer-to-peer, allowing updates via merge proposals.
 
 ### Synchronization Protocol
 
-The sync protocol runs over libp2p, enabling any device to act as both client and server. Peers transfer data via symmetric push/pull operations — request nodes by hash, check existence, or upload batches. When syncing a node, all transitive dependencies are transferred first, maintaining the invariant that if a key exists locally, all its referenced nodes are present.
+The sync protocol runs over libp2p, enabling any device to act as both client and server. Peers transfer data via symmetric push/pull operations — request nodes by CID, check existence, or upload batches. When syncing a node, all transitive dependencies are transferred first, maintaining the invariant that if a CID exists locally, all its referenced nodes are present.
 
 The protocol is designed for selective synchronization. A mobile client could sync only metadata and thumbnails for a photo gallery, fetching full-resolution images on demand. Sync preferences are per-device; peers don't track each other's filter configurations.
 

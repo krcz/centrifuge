@@ -214,7 +214,7 @@ async fn sync_with_bond_over_memory_transport() {
         bio: "Writes test content".into(),
     };
     let author_cell = solvent.add(author);
-    let author_key = author_cell.key();
+    let author_cid = author_cell.cid();
 
     // Create chapter with bond to author
     let chapter = Chapter {
@@ -227,7 +227,7 @@ async fn sync_with_bond_over_memory_transport() {
 
     // Verify persist_cell stored both value and its bond dependency
     assert!(store.has(&chapter_key).unwrap());
-    assert!(store.has(&author_key).unwrap());
+    assert!(store.has(&author_cid).unwrap());
 }
 
 #[tokio::test]
@@ -278,8 +278,8 @@ async fn sync_with_nested_bonds() {
 
     // Verify persist_cell stored all values and their transitive dependencies
     assert!(store.has(&book_key).unwrap());
-    assert!(store.has(&chapter1_cell.key()).unwrap());
-    assert!(store.has(&chapter2_cell.key()).unwrap());
-    assert!(store.has(&author1_cell.key()).unwrap());
-    assert!(store.has(&author2_cell.key()).unwrap());
+    assert!(store.has(&chapter1_cell.cid()).unwrap());
+    assert!(store.has(&chapter2_cell.cid()).unwrap());
+    assert!(store.has(&author1_cell.cid()).unwrap());
+    assert!(store.has(&author2_cell.cid()).unwrap());
 }

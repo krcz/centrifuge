@@ -69,7 +69,7 @@ impl request_response::Codec for PolyepoxideCodec {
     }
 }
 
-/// Read a length-prefixed CBOR message.
+/// Read a length-prefixed DAG-CBOR message.
 async fn read_cbor_message<T, M>(io: &mut T) -> io::Result<M>
 where
     T: AsyncRead + Unpin + Send,
@@ -91,19 +91,19 @@ where
     let mut buf = vec![0u8; len as usize];
     io.read_exact(&mut buf).await?;
 
-    // Deserialize
-    ciborium::from_reader(&buf[..]).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    // Deserialize using DAG-CBOR
+    serde_ipld_dagcbor::from_slice(&buf)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
-/// Write a length-prefixed CBOR message.
+/// Write a length-prefixed DAG-CBOR message.
 async fn write_cbor_message<T, M>(io: &mut T, msg: &M) -> io::Result<()>
 where
     T: AsyncWrite + Unpin + Send,
     M: serde::Serialize,
 {
-    // Serialize to buffer
-    let mut buf = Vec::new();
-    ciborium::into_writer(msg, &mut buf)
+    // Serialize to buffer using DAG-CBOR
+    let buf = serde_ipld_dagcbor::to_vec(msg)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     if buf.len() as u64 > MAX_MESSAGE_SIZE {

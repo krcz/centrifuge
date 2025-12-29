@@ -103,10 +103,8 @@ pub mod result_lowercase {
 mod tests {
     use super::*;
 
-    fn to_cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        ciborium::into_writer(value, &mut bytes).unwrap();
-        bytes
+    fn to_dagcbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
+        serde_ipld_dagcbor::to_vec(value).unwrap()
     }
 
     #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
@@ -118,16 +116,16 @@ mod tests {
     #[test]
     fn option_none_as_empty_array() {
         let v = WithOption { value: None };
-        let bytes = to_cbor(&v);
-        let recovered: WithOption = ciborium::from_reader(&bytes[..]).unwrap();
+        let bytes = to_dagcbor(&v);
+        let recovered: WithOption = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
         assert_eq!(recovered, v);
     }
 
     #[test]
     fn option_some_as_singleton_array() {
         let v = WithOption { value: Some(42) };
-        let bytes = to_cbor(&v);
-        let recovered: WithOption = ciborium::from_reader(&bytes[..]).unwrap();
+        let bytes = to_dagcbor(&v);
+        let recovered: WithOption = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
         assert_eq!(recovered, v);
     }
 
@@ -140,8 +138,8 @@ mod tests {
     #[test]
     fn result_ok_lowercase() {
         let v = WithResult { value: Ok(42) };
-        let bytes = to_cbor(&v);
-        let recovered: WithResult = ciborium::from_reader(&bytes[..]).unwrap();
+        let bytes = to_dagcbor(&v);
+        let recovered: WithResult = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
         assert_eq!(recovered, v);
     }
 
@@ -150,8 +148,8 @@ mod tests {
         let v = WithResult {
             value: Err("oops".to_string()),
         };
-        let bytes = to_cbor(&v);
-        let recovered: WithResult = ciborium::from_reader(&bytes[..]).unwrap();
+        let bytes = to_dagcbor(&v);
+        let recovered: WithResult = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
         assert_eq!(recovered, v);
     }
 }

@@ -5,9 +5,10 @@ edition = "2024"
 
 [dependencies]
 polyepoxide-core = { path = "../polyepoxide-core" }
+cid = "0.11"
 libp2p = { version = "0.54", features = ["tcp", "quic", "yamux", "noise", "tokio", "macros", "request-response"] }
-ciborium = "0.2"
 serde = { version = "1.0", features = ["derive"] }
+serde_ipld_dagcbor = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 thiserror = "2.0"
 futures = "0.3"

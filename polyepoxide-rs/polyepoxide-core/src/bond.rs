@@ -1,22 +1,22 @@
+use cid::Cid;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::cell::Cell;
-use crate::key::Key;
 use crate::oxide::{BondMapper, BondVisitor, Oxide};
 use crate::schema::Structure;
 
 /// A typed reference from one oxide to another.
 ///
 /// Bonds exist in two states:
-/// - **Unresolved**: Contains only the target's key (after deserialization)
+/// - **Unresolved**: Contains only the target's CID (after deserialization)
 /// - **Resolved**: Points to a Cell containing the value (after loading)
 ///
-/// When serialized, bonds always emit just the key.
+/// When serialized, bonds always emit just the CID (with CBOR tag 42).
 #[derive(Debug)]
 pub enum Bond<T: Oxide> {
-    /// Unresolved reference - contains only the key.
-    Unresolved(Key),
+    /// Unresolved reference - contains only the CID.
+    Unresolved(Cid),
     /// Resolved reference - points to a cell with the value.
     Resolved(Arc<Cell<T>>),
 }
@@ -28,9 +28,9 @@ impl<T: Oxide> Bond<T> {
         Bond::Resolved(Arc::new(Cell::new(value)))
     }
 
-    /// Creates a new unresolved bond from a key.
-    pub fn from_key(key: Key) -> Self {
-        Bond::Unresolved(key)
+    /// Creates a new unresolved bond from a CID.
+    pub fn from_cid(cid: Cid) -> Self {
+        Bond::Unresolved(cid)
     }
 
     /// Creates a new resolved bond from a cell.
@@ -38,11 +38,11 @@ impl<T: Oxide> Bond<T> {
         Bond::Resolved(cell)
     }
 
-    /// Returns the key of the referenced oxide.
-    pub fn key(&self) -> Key {
+    /// Returns the CID of the referenced oxide.
+    pub fn cid(&self) -> Cid {
         match self {
-            Bond::Unresolved(key) => *key,
-            Bond::Resolved(cell) => cell.key(),
+            Bond::Unresolved(cid) => *cid,
+            Bond::Resolved(cell) => cell.cid(),
         }
     }
 
@@ -68,7 +68,7 @@ impl<T: Oxide> Bond<T> {
 impl<T: Oxide> Clone for Bond<T> {
     fn clone(&self) -> Self {
         match self {
-            Bond::Unresolved(key) => Bond::Unresolved(*key),
+            Bond::Unresolved(cid) => Bond::Unresolved(*cid),
             Bond::Resolved(cell) => Bond::Resolved(Arc::clone(cell)),
         }
     }
@@ -79,8 +79,8 @@ impl<T: Oxide> Serialize for Bond<T> {
     where
         S: serde::Serializer,
     {
-        // Always serialize as just the key (32 bytes)
-        self.key().serialize(serializer)
+        // Always serialize as just the CID (CBOR tag 42 handled by serde_ipld_dagcbor)
+        self.cid().serialize(serializer)
     }
 }
 
@@ -89,9 +89,9 @@ impl<'de, T: Oxide> Deserialize<'de> for Bond<T> {
     where
         D: serde::Deserializer<'de>,
     {
-        // Deserialize as key, creating an unresolved bond
-        let key = Key::deserialize(deserializer)?;
-        Ok(Bond::Unresolved(key))
+        // Deserialize as CID, creating an unresolved bond
+        let cid = Cid::deserialize(deserializer)?;
+        Ok(Bond::Unresolved(cid))
     }
 }
 
@@ -101,7 +101,7 @@ impl<T: Oxide> Oxide for Bond<T> {
     }
 
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
-        visitor.visit_bond(&self.key());
+        visitor.visit_bond(&self.cid());
         // If resolved, also visit bonds within the target value
         if let Some(value) = self.value() {
             value.visit_bonds(visitor);
@@ -117,13 +117,14 @@ impl<T: Oxide> Oxide for Bond<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oxide::compute_cid;
 
     #[test]
     fn bond_unresolved() {
-        let key = Key::from_data(b"test");
-        let bond: Bond<String> = Bond::from_key(key);
+        let cid = compute_cid(b"test");
+        let bond: Bond<String> = Bond::from_cid(cid);
         assert!(!bond.is_resolved());
-        assert_eq!(bond.key(), key);
+        assert_eq!(bond.cid(), cid);
         assert!(bond.value().is_none());
     }
 
@@ -141,13 +142,13 @@ mod tests {
         let value = "test".to_string();
         let cell = Arc::new(Cell::new(value));
         let bond = Bond::from_cell(cell);
-        let key = bond.key();
+        let cid = bond.cid();
 
         let bytes = bond.to_bytes();
         let recovered: Bond<String> = Bond::from_bytes(&bytes).unwrap();
 
-        // After deserialization, bond is unresolved but has same key
+        // After deserialization, bond is unresolved but has same CID
         assert!(!recovered.is_resolved());
-        assert_eq!(recovered.key(), key);
+        assert_eq!(recovered.cid(), cid);
     }
 }

@@ -1,6 +1,6 @@
 //! Integration tests demonstrating nested structures with bonds.
 
-use polyepoxide_core::{oxide, Bond, BondVisitor, Key, Oxide, Solvent, Structure};
+use polyepoxide_core::{oxide, Bond, BondVisitor, Cid, Oxide, Solvent, Structure};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -92,7 +92,7 @@ fn deduplication_in_dag() {
     let left_next = left_cell.value().next.as_ref().unwrap();
     let right_next = right_cell.value().next.as_ref().unwrap();
 
-    assert_eq!(left_next.key(), right_next.key());
+    assert_eq!(left_next.cid(), right_next.cid());
 
     // Should have 3 nodes total (shared is not duplicated)
     assert_eq!(solvent.len(), 3);
@@ -107,7 +107,7 @@ fn bond_serialization_preserves_reference() {
         next: None,
     };
     let target_cell = solvent.add(target);
-    let target_key = target_cell.key();
+    let target_cid = target_cell.cid();
 
     let source = LinkedNode {
         value: "source".to_string(),
@@ -118,10 +118,10 @@ fn bond_serialization_preserves_reference() {
     let bytes = source.to_bytes();
     let recovered: LinkedNode = Oxide::from_bytes(&bytes).unwrap();
 
-    // After deserialization, the bond should be unresolved but have the same key
+    // After deserialization, the bond should be unresolved but have the same CID
     let recovered_bond = recovered.next.as_ref().unwrap();
     assert!(!recovered_bond.is_resolved());
-    assert_eq!(recovered_bond.key(), target_key);
+    assert_eq!(recovered_bond.cid(), target_cid);
 }
 
 /// A tree node with multiple children.
@@ -200,23 +200,23 @@ fn collect_all_keys() {
     };
     let root_cell = solvent.add(root);
 
-    // Collect all referenced keys using BondVisitor
-    struct KeyCollector {
-        keys: Vec<Key>,
+    // Collect all referenced CIDs using BondVisitor
+    struct CidCollector {
+        cids: Vec<Cid>,
     }
 
-    impl BondVisitor for KeyCollector {
-        fn visit_bond(&mut self, key: &Key) {
-            self.keys.push(*key);
+    impl BondVisitor for CidCollector {
+        fn visit_bond(&mut self, cid: &Cid) {
+            self.cids.push(*cid);
         }
     }
 
-    let mut collector = KeyCollector { keys: vec![] };
+    let mut collector = CidCollector { cids: vec![] };
     root_cell.value().visit_bonds(&mut collector);
 
-    // Should have collected the leaf's key
-    assert_eq!(collector.keys.len(), 1);
-    assert_eq!(collector.keys[0], leaf_cell.key());
+    // Should have collected the leaf's CID
+    assert_eq!(collector.cids.len(), 1);
+    assert_eq!(collector.cids[0], leaf_cell.cid());
 }
 
 // --- Derive macro feature tests ---

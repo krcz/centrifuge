@@ -5,15 +5,16 @@
 //! with transfer to avoid double-fetching: each node is fetched once from
 //! source, checked against dest, stored if missing, then traversed for bonds.
 
+use cid::Cid;
 use std::sync::Arc;
 
-use crate::{AsyncStore, Cell, Key, Solvent, Structure};
+use crate::{AsyncStore, Cell, Solvent, Structure};
 
 /// Error during sync operations.
 #[derive(Debug, thiserror::Error)]
 pub enum SyncError<S, D> {
     #[error("node not found: {0}")]
-    NotFound(Key),
+    NotFound(Cid),
     #[error("invalid format: {0}")]
     Format(String),
     #[error("source store error: {0}")]
@@ -25,24 +26,24 @@ pub enum SyncError<S, D> {
 /// Pull a value and all its dependencies from source to destination.
 ///
 /// Uses dependency-first order: children are stored before parents.
-/// This maintains the invariant that if a key exists in dest, all its
+/// This maintains the invariant that if a CID exists in dest, all its
 /// dependencies are already present. This allows using `dest.has()` to
 /// skip already-synced subgraphs without separate visited tracking.
 ///
 /// # Arguments
 /// * `source` - The store to pull from
 /// * `dest` - The store to pull into
-/// * `value_key` - Key of the root value to sync
-/// * `schema_key` - Key of the root value's schema
+/// * `value_cid` - CID of the root value to sync
+/// * `schema_cid` - CID of the root value's schema
 ///
 /// # Returns
-/// The set of keys that were transferred
+/// The set of CIDs that were transferred
 pub async fn pull<S, D>(
     source: &S,
     dest: &D,
-    value_key: Key,
-    schema_key: Key,
-) -> Result<Vec<Key>, SyncError<S::Error, D::Error>>
+    value_cid: Cid,
+    schema_cid: Cid,
+) -> Result<Vec<Cid>, SyncError<S::Error, D::Error>>
 where
     S: AsyncStore,
     D: AsyncStore,
@@ -53,8 +54,8 @@ where
     pull_recursive(
         source,
         dest,
-        value_key,
-        schema_key,
+        value_cid,
+        schema_cid,
         &mut schemas,
         &mut transferred,
     )
@@ -67,43 +68,43 @@ where
 async fn pull_recursive<S, D>(
     source: &S,
     dest: &D,
-    value_key: Key,
-    schema_key: Key,
+    value_cid: Cid,
+    schema_cid: Cid,
     schemas: &mut Solvent,
-    transferred: &mut Vec<Key>,
+    transferred: &mut Vec<Cid>,
 ) -> Result<(), SyncError<S::Error, D::Error>>
 where
     S: AsyncStore,
     D: AsyncStore,
 {
-    // If dest already has this key, all dependencies are present (invariant)
-    if dest.async_has(&value_key).await.map_err(SyncError::Dest)? {
+    // If dest already has this CID, all dependencies are present (invariant)
+    if dest.async_has(&value_cid).await.map_err(SyncError::Dest)? {
         return Ok(());
     }
 
     // Ensure schema is available
-    let schema_cell = ensure_schema(source, dest, schema_key, schemas, transferred).await?;
+    let schema_cell = ensure_schema(source, dest, schema_cid, schemas, transferred).await?;
 
     // Fetch value from source
     let value_bytes = source
-        .async_get(&value_key)
+        .async_get(&value_cid)
         .await
         .map_err(SyncError::Source)?
-        .ok_or(SyncError::NotFound(value_key))?;
+        .ok_or(SyncError::NotFound(value_cid))?;
 
-    // Parse to discover bonds
-    let value: ciborium::Value = ciborium::from_reader(&value_bytes[..])
+    // Parse to discover bonds (use serde_ipld_dagcbor for DAG-CBOR)
+    let value: ipld_core::ipld::Ipld = serde_ipld_dagcbor::from_slice(&value_bytes)
         .map_err(|e| SyncError::Format(format!("value parse error: {}", e)))?;
 
     // First, recursively pull all bond dependencies (children before parent)
     let mut bonds = Vec::new();
     collect_bonds(&value, schema_cell.value(), schemas, &mut bonds);
-    for (bond_key, bond_schema_key) in bonds {
+    for (bond_cid, bond_schema_cid) in bonds {
         Box::pin(pull_recursive(
             source,
             dest,
-            bond_key,
-            bond_schema_key,
+            bond_cid,
+            bond_schema_cid,
             schemas,
             transferred,
         ))
@@ -111,10 +112,10 @@ where
     }
 
     // Now store this value (all dependencies are already in dest)
-    dest.async_put(&value_key, &value_bytes)
+    dest.async_put(&value_cid, &value_bytes)
         .await
         .map_err(SyncError::Dest)?;
-    transferred.push(value_key);
+    transferred.push(value_cid);
 
     Ok(())
 }
@@ -124,36 +125,36 @@ where
 async fn ensure_schema<S, D>(
     source: &S,
     dest: &D,
-    key: Key,
+    cid: Cid,
     schemas: &mut Solvent,
-    transferred: &mut Vec<Key>,
+    transferred: &mut Vec<Cid>,
 ) -> Result<Arc<Cell<Structure>>, SyncError<S::Error, D::Error>>
 where
     S: AsyncStore,
     D: AsyncStore,
 {
     // Check if already in solvent
-    if let Some(cell) = schemas.get::<Structure>(&key) {
+    if let Some(cell) = schemas.get::<Structure>(&cid) {
         return Ok(cell);
     }
 
     // Check if dest has it
-    let dest_has = dest.async_has(&key).await.map_err(SyncError::Dest)?;
+    let dest_has = dest.async_has(&cid).await.map_err(SyncError::Dest)?;
 
     // Fetch from source
     let bytes = source
-        .async_get(&key)
+        .async_get(&cid)
         .await
         .map_err(SyncError::Source)?
-        .ok_or(SyncError::NotFound(key))?;
+        .ok_or(SyncError::NotFound(cid))?;
 
     // Store in dest if missing
     if !dest_has {
-        dest.async_put(&key, &bytes).await.map_err(SyncError::Dest)?;
-        transferred.push(key);
+        dest.async_put(&cid, &bytes).await.map_err(SyncError::Dest)?;
+        transferred.push(cid);
     }
 
-    let schema: Structure = ciborium::from_reader(&bytes[..])
+    let schema: Structure = serde_ipld_dagcbor::from_slice(&bytes)
         .map_err(|e| SyncError::Format(format!("schema parse error: {}", e)))?;
 
     // Recursively ensure nested schema bonds are transferred
@@ -169,7 +170,7 @@ async fn ensure_nested_schemas<S, D>(
     dest: &D,
     schema: &Structure,
     schemas: &mut Solvent,
-    transferred: &mut Vec<Key>,
+    transferred: &mut Vec<Cid>,
 ) -> Result<(), SyncError<S::Error, D::Error>>
 where
     S: AsyncStore,
@@ -177,30 +178,30 @@ where
 {
     match schema {
         Structure::Sequence(inner) | Structure::Bond(inner) => {
-            let key = inner.key();
-            if schemas.get::<Structure>(&key).is_none() {
-                Box::pin(ensure_schema(source, dest, key, schemas, transferred)).await?;
+            let cid = inner.cid();
+            if schemas.get::<Structure>(&cid).is_none() {
+                Box::pin(ensure_schema(source, dest, cid, schemas, transferred)).await?;
             }
         }
         Structure::Tuple(elems) => {
             for elem in elems {
-                let key = elem.key();
-                if schemas.get::<Structure>(&key).is_none() {
-                    Box::pin(ensure_schema(source, dest, key, schemas, transferred)).await?;
+                let cid = elem.cid();
+                if schemas.get::<Structure>(&cid).is_none() {
+                    Box::pin(ensure_schema(source, dest, cid, schemas, transferred)).await?;
                 }
             }
         }
         Structure::Record(fields) | Structure::Tagged(fields) => {
             for (_, field) in fields {
-                let key = field.key();
-                if schemas.get::<Structure>(&key).is_none() {
-                    Box::pin(ensure_schema(source, dest, key, schemas, transferred)).await?;
+                let cid = field.cid();
+                if schemas.get::<Structure>(&cid).is_none() {
+                    Box::pin(ensure_schema(source, dest, cid, schemas, transferred)).await?;
                 }
             }
         }
         Structure::Map { key: k, value: v } | Structure::OrderedMap { key: k, value: v } => {
-            let kk = k.key();
-            let vk = v.key();
+            let kk = k.cid();
+            let vk = v.cid();
             if schemas.get::<Structure>(&kk).is_none() {
                 Box::pin(ensure_schema(source, dest, kk, schemas, transferred)).await?;
             }
@@ -214,34 +215,27 @@ where
 }
 
 /// Extract bond targets from a value given its schema.
-/// Appends (value_key, schema_key) pairs to `bonds`.
+/// Appends (value_cid, schema_cid) pairs to `bonds`.
 /// Silently skips malformed data - we only care about finding bonds.
 fn collect_bonds(
-    value: &ciborium::Value,
+    value: &ipld_core::ipld::Ipld,
     schema: &Structure,
     schemas: &Solvent,
-    bonds: &mut Vec<(Key, Key)>,
+    bonds: &mut Vec<(Cid, Cid)>,
 ) {
+    use ipld_core::ipld::Ipld;
+
     match schema {
         Structure::Bond(inner_schema) => {
-            if let ciborium::Value::Bytes(bytes) = value {
-                if bytes.len() == 32 {
-                    let mut arr = [0u8; 32];
-                    arr.copy_from_slice(bytes);
-                    let target_key = Key::from_bytes(arr);
-                    bonds.push((target_key, inner_schema.key()));
-                }
+            // In DAG-CBOR, CIDs are represented as Ipld::Link
+            if let Ipld::Link(target_cid) = value {
+                bonds.push((*target_cid, inner_schema.cid()));
             }
         }
         Structure::Record(fields) => {
-            if let Some(map) = value.as_map() {
-                use std::collections::HashMap;
-                let field_values: HashMap<&str, &ciborium::Value> = map
-                    .iter()
-                    .filter_map(|(k, v)| k.as_text().map(|name| (name, v)))
-                    .collect();
+            if let Ipld::Map(map) = value {
                 for (name, field_schema_bond) in fields {
-                    if let Some(fv) = field_values.get(name.as_str()) {
+                    if let Some(fv) = map.get(name) {
                         if let Some(s) = field_schema_bond.value() {
                             collect_bonds(fv, s, schemas, bonds);
                         }
@@ -250,7 +244,7 @@ fn collect_bonds(
             }
         }
         Structure::Sequence(inner) => {
-            if let Some(arr) = value.as_array() {
+            if let Ipld::List(arr) = value {
                 if let Some(inner_schema) = inner.value() {
                     for elem in arr {
                         collect_bonds(elem, inner_schema, schemas, bonds);
@@ -259,7 +253,7 @@ fn collect_bonds(
             }
         }
         Structure::Tuple(elems) => {
-            if let Some(arr) = value.as_array() {
+            if let Ipld::List(arr) = value {
                 for (elem_schema_bond, elem_val) in elems.iter().zip(arr.iter()) {
                     if let Some(s) = elem_schema_bond.value() {
                         collect_bonds(elem_val, s, schemas, bonds);
@@ -268,12 +262,12 @@ fn collect_bonds(
             }
         }
         Structure::Tagged(variants) => {
-            if let Some(map) = value.as_map() {
+            if let Ipld::Map(map) = value {
                 if map.len() == 1 {
-                    if let Some(name) = map[0].0.as_text() {
+                    if let Some((name, val)) = map.iter().next() {
                         if let Some(variant_schema_bond) = variants.get(name) {
                             if let Some(s) = variant_schema_bond.value() {
-                                collect_bonds(&map[0].1, s, schemas, bonds);
+                                collect_bonds(val, s, schemas, bonds);
                             }
                         }
                     }
@@ -281,11 +275,14 @@ fn collect_bonds(
             }
         }
         Structure::Map { key: k, value: v } | Structure::OrderedMap { key: k, value: v } => {
-            if let Some(map) = value.as_map() {
+            if let Ipld::Map(map) = value {
                 if let (Some(ks), Some(vs)) = (k.value(), v.value()) {
                     for (mk, mv) in map {
-                        collect_bonds(mk, ks, schemas, bonds);
+                        // Note: In IPLD maps, keys are strings, not arbitrary values
+                        // For now we only recurse into values
                         collect_bonds(mv, vs, schemas, bonds);
+                        // If key schema has bonds, we'd need to parse the string key
+                        let _ = (ks, mk); // Acknowledge unused for now
                     }
                 }
             }
@@ -301,14 +298,14 @@ fn collect_bonds(
 pub async fn push<S, D>(
     source: &S,
     dest: &D,
-    value_key: Key,
-    schema_key: Key,
-) -> Result<Vec<Key>, SyncError<S::Error, D::Error>>
+    value_cid: Cid,
+    schema_cid: Cid,
+) -> Result<Vec<Cid>, SyncError<S::Error, D::Error>>
 where
     S: AsyncStore,
     D: AsyncStore,
 {
-    pull(source, dest, value_key, schema_key).await
+    pull(source, dest, value_cid, schema_cid).await
 }
 
 #[cfg(test)]
@@ -354,15 +351,15 @@ mod tests {
             bio: "A prolific writer".into(),
         };
         let cell = solvent.add(author);
-        let (value_key, schema_key) = solvent.persist_cell(&cell, &source).unwrap();
+        let (value_cid, schema_cid) = solvent.persist_cell(&cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, value_key, schema_key)
+        let transferred = pull(&source, &dest, value_cid, schema_cid)
             .await
             .unwrap();
 
         assert!(!transferred.is_empty());
-        assert!(dest.has(&value_key).unwrap());
-        assert!(dest.has(&schema_key).unwrap());
+        assert!(dest.has(&value_cid).unwrap());
+        assert!(dest.has(&schema_cid).unwrap());
     }
 
     #[tokio::test]
@@ -377,7 +374,7 @@ mod tests {
             bio: "Expert in Rust".into(),
         };
         let author_cell = solvent.add(author);
-        let author_key = author_cell.key();
+        let author_cid = author_cell.cid();
 
         // Create chapter with bond to author
         let chapter = Chapter {
@@ -386,17 +383,17 @@ mod tests {
             author: Bond::from_cell(Arc::clone(&author_cell)),
         };
         let chapter_cell = solvent.add(chapter);
-        let (chapter_key, schema_key) = solvent.persist_cell(&chapter_cell, &source).unwrap();
+        let (chapter_cid, schema_cid) = solvent.persist_cell(&chapter_cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, chapter_key, schema_key)
+        let transferred = pull(&source, &dest, chapter_cid, schema_cid)
             .await
             .unwrap();
 
         // Should have transferred chapter and author
-        assert!(transferred.contains(&chapter_key));
-        assert!(transferred.contains(&author_key));
-        assert!(dest.has(&chapter_key).unwrap());
-        assert!(dest.has(&author_key).unwrap());
+        assert!(transferred.contains(&chapter_cid));
+        assert!(transferred.contains(&author_cid));
+        assert!(dest.has(&chapter_cid).unwrap());
+        assert!(dest.has(&author_cid).unwrap());
     }
 
     #[tokio::test]
@@ -443,25 +440,25 @@ mod tests {
             ],
         };
         let book_cell = solvent.add(book);
-        let (book_key, schema_key) = solvent.persist_cell(&book_cell, &source).unwrap();
+        let (book_cid, schema_cid) = solvent.persist_cell(&book_cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, book_key, schema_key)
+        let transferred = pull(&source, &dest, book_cid, schema_cid)
             .await
             .unwrap();
 
         // Should have transferred everything: book, 2 chapters, 2 authors
-        assert!(transferred.contains(&book_key));
-        assert!(transferred.contains(&chapter1_cell.key()));
-        assert!(transferred.contains(&chapter2_cell.key()));
-        assert!(transferred.contains(&author1_cell.key()));
-        assert!(transferred.contains(&author2_cell.key()));
+        assert!(transferred.contains(&book_cid));
+        assert!(transferred.contains(&chapter1_cell.cid()));
+        assert!(transferred.contains(&chapter2_cell.cid()));
+        assert!(transferred.contains(&author1_cell.cid()));
+        assert!(transferred.contains(&author2_cell.cid()));
 
         // Verify all are in dest
-        assert!(dest.has(&book_key).unwrap());
-        assert!(dest.has(&chapter1_cell.key()).unwrap());
-        assert!(dest.has(&chapter2_cell.key()).unwrap());
-        assert!(dest.has(&author1_cell.key()).unwrap());
-        assert!(dest.has(&author2_cell.key()).unwrap());
+        assert!(dest.has(&book_cid).unwrap());
+        assert!(dest.has(&chapter1_cell.cid()).unwrap());
+        assert!(dest.has(&chapter2_cell.cid()).unwrap());
+        assert!(dest.has(&author1_cell.cid()).unwrap());
+        assert!(dest.has(&author2_cell.cid()).unwrap());
     }
 
     #[tokio::test]
@@ -501,24 +498,24 @@ mod tests {
             ],
         };
         let book_cell = solvent.add(book);
-        let (book_key, schema_key) = solvent.persist_cell(&book_cell, &source).unwrap();
+        let (book_cid, schema_cid) = solvent.persist_cell(&book_cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, book_key, schema_key)
+        let transferred = pull(&source, &dest, book_cid, schema_cid)
             .await
             .unwrap();
 
         // Shared author should only be transferred once
         let author_count = transferred
             .iter()
-            .filter(|k| **k == author_cell.key())
+            .filter(|k| **k == author_cell.cid())
             .count();
         assert_eq!(author_count, 1);
 
         // All values should be in dest
-        assert!(dest.has(&book_key).unwrap());
-        assert!(dest.has(&chapter1_cell.key()).unwrap());
-        assert!(dest.has(&chapter2_cell.key()).unwrap());
-        assert!(dest.has(&author_cell.key()).unwrap());
+        assert!(dest.has(&book_cid).unwrap());
+        assert!(dest.has(&chapter1_cell.cid()).unwrap());
+        assert!(dest.has(&chapter2_cell.cid()).unwrap());
+        assert!(dest.has(&author_cell.cid()).unwrap());
     }
 
     #[tokio::test]
@@ -532,12 +529,12 @@ mod tests {
             bio: "Pre-existing".into(),
         };
         let cell = solvent.add(author);
-        let (value_key, schema_key) = solvent.persist_cell(&cell, &source).unwrap();
+        let (value_cid, schema_cid) = solvent.persist_cell(&cell, &source).unwrap();
 
         // Pre-populate dest with the same data
         solvent.persist_cell(&cell, &dest).unwrap();
 
-        let transferred = pull(&source, &dest, value_key, schema_key)
+        let transferred = pull(&source, &dest, value_cid, schema_cid)
             .await
             .unwrap();
 
@@ -563,14 +560,14 @@ mod tests {
             author: Bond::from_cell(Arc::clone(&author_cell)),
         };
         let chapter_cell = solvent.add(chapter);
-        let (chapter_key, schema_key) = solvent.persist_cell(&chapter_cell, &source).unwrap();
+        let (chapter_cid, schema_cid) = solvent.persist_cell(&chapter_cell, &source).unwrap();
 
-        let transferred = push(&source, &dest, chapter_key, schema_key)
+        let transferred = push(&source, &dest, chapter_cid, schema_cid)
             .await
             .unwrap();
 
         assert!(!transferred.is_empty());
-        assert!(dest.has(&chapter_key).unwrap());
-        assert!(dest.has(&author_cell.key()).unwrap());
+        assert!(dest.has(&chapter_cid).unwrap());
+        assert!(dest.has(&author_cell.cid()).unwrap());
     }
 }
