@@ -1,4 +1,4 @@
-The monorepo is used for rapid prototyping of a few interrelated projects. The root directory contains Rust implementations, which are the core ones. Directories may contain implementations in different languages.
+The monorepo is used for rapid prototyping of a few interrelated projects. Directories contain project implementations, with suffixes hinting at the language (e.g., `-rs` for Rust, `-py` for Python).
 
 ## Code Guidelines
 

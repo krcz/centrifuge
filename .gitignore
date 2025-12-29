@@ -1,2 +1,15 @@
-/target/
-Cargo.lock
+# IDE
+.idea/
+.vscode/
+*.iml
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+*~
+
+# Editor
+*.swp
+*.swo
+.*.sw?
