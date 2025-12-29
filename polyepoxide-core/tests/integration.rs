@@ -1,36 +1,14 @@
 //! Integration tests demonstrating nested structures with bonds.
 
-use polyepoxide_core::{Bond, BondMapper, BondVisitor, Key, Oxide, Structure, Solvent};
+use polyepoxide_core::{oxide, Bond, BondVisitor, Key, Oxide, Solvent, Structure};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// A simple node with a value and optional reference to another node.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
 struct LinkedNode {
     value: String,
     next: Option<Bond<LinkedNode>>,
-}
-
-impl Oxide for LinkedNode {
-    fn schema() -> Structure {
-        Structure::record([
-            ("value", Structure::Unicode),
-            ("next", Structure::option(Structure::bond(Structure::SelfRef(0)))),
-        ])
-    }
-
-    fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
-        if let Some(bond) = &self.next {
-            bond.visit_bonds(visitor);
-        }
-    }
-
-    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self {
-        LinkedNode {
-            value: self.value.clone(),
-            next: self.next.as_ref().map(|b| b.map_bonds(mapper)),
-        }
-    }
 }
 
 #[test]
@@ -147,32 +125,10 @@ fn bond_serialization_preserves_reference() {
 }
 
 /// A tree node with multiple children.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
 struct TreeNode {
     label: String,
     children: Vec<Bond<TreeNode>>,
-}
-
-impl Oxide for TreeNode {
-    fn schema() -> Structure {
-        Structure::record([
-            ("label", Structure::Unicode),
-            ("children", Structure::sequence(Structure::bond(Structure::SelfRef(0)))),
-        ])
-    }
-
-    fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
-        for child in &self.children {
-            child.visit_bonds(visitor);
-        }
-    }
-
-    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self {
-        TreeNode {
-            label: self.label.clone(),
-            children: self.children.iter().map(|c| c.map_bonds(mapper)).collect(),
-        }
-    }
 }
 
 #[test]
@@ -261,4 +217,242 @@ fn collect_all_keys() {
     // Should have collected the leaf's key
     assert_eq!(collector.keys.len(), 1);
     assert_eq!(collector.keys[0], leaf_cell.key());
+}
+
+// --- Derive macro feature tests ---
+
+/// Test the #[oxide] attribute macro (syntax sugar for all derives)
+#[oxide]
+struct SimplePoint {
+    x: f64,
+    y: f64,
+}
+
+#[test]
+fn oxide_attribute_macro() {
+    let mut solvent = Solvent::new();
+    let point = SimplePoint { x: 1.0, y: 2.0 };
+    let cell = solvent.add(point);
+
+    // Verify schema
+    if let Structure::Record(fields) = SimplePoint::schema() {
+        assert_eq!(fields.len(), 2);
+        assert!(fields.contains_key("x"));
+        assert!(fields.contains_key("y"));
+    } else {
+        panic!("Expected Record schema");
+    }
+
+    // Verify roundtrip
+    let bytes = cell.value().to_bytes();
+    let recovered: SimplePoint = Oxide::from_bytes(&bytes).unwrap();
+    assert_eq!(recovered.x, 1.0);
+    assert_eq!(recovered.y, 2.0);
+}
+
+/// Test that #[oxide] adds correct serde attributes for Option (array encoding)
+#[oxide]
+#[derive(PartialEq)]
+struct WithOptionalField {
+    name: String,
+    count: Option<u32>,
+}
+
+#[test]
+fn oxide_option_array_encoding() {
+    // Test None case
+    let v1 = WithOptionalField {
+        name: "test".to_string(),
+        count: None,
+    };
+    let bytes1 = v1.to_bytes();
+    let recovered1: WithOptionalField = Oxide::from_bytes(&bytes1).unwrap();
+    assert_eq!(recovered1, v1);
+
+    // Test Some case
+    let v2 = WithOptionalField {
+        name: "test".to_string(),
+        count: Some(42),
+    };
+    let bytes2 = v2.to_bytes();
+    let recovered2: WithOptionalField = Oxide::from_bytes(&bytes2).unwrap();
+    assert_eq!(recovered2, v2);
+}
+
+/// Test that #[oxide] adds correct serde attributes for Result (lowercase keys)
+#[oxide]
+#[derive(PartialEq)]
+struct WithResultField {
+    result: Result<i32, String>,
+}
+
+#[test]
+fn oxide_result_lowercase_encoding() {
+    // Test Ok case
+    let v1 = WithResultField { result: Ok(42) };
+    let bytes1 = v1.to_bytes();
+    let recovered1: WithResultField = Oxide::from_bytes(&bytes1).unwrap();
+    assert_eq!(recovered1, v1);
+
+    // Test Err case
+    let v2 = WithResultField {
+        result: Err("error".to_string()),
+    };
+    let bytes2 = v2.to_bytes();
+    let recovered2: WithResultField = Oxide::from_bytes(&bytes2).unwrap();
+    assert_eq!(recovered2, v2);
+}
+
+/// Test C-style enum (all unit variants)
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide, PartialEq)]
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+#[test]
+fn enum_unit_variants() {
+    // Schema should be Enum
+    if let Structure::Enum(variants) = Color::schema() {
+        assert_eq!(variants, vec!["Red", "Green", "Blue"]);
+    } else {
+        panic!("Expected Enum schema");
+    }
+
+    // Roundtrip
+    let color = Color::Green;
+    let bytes = color.to_bytes();
+    let recovered: Color = Oxide::from_bytes(&bytes).unwrap();
+    assert_eq!(recovered, Color::Green);
+}
+
+/// Test tagged union enum (variants with data)
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide, PartialEq)]
+enum Shape {
+    Circle { radius: f64 },
+    Rectangle { width: f64, height: f64 },
+    Point,
+}
+
+#[test]
+fn enum_tagged_variants() {
+    // Schema should be Tagged
+    if let Structure::Tagged(variants) = Shape::schema() {
+        assert_eq!(variants.len(), 3);
+        assert!(variants.contains_key("Circle"));
+        assert!(variants.contains_key("Rectangle"));
+        assert!(variants.contains_key("Point"));
+    } else {
+        panic!("Expected Tagged schema");
+    }
+
+    // Roundtrip
+    let shape = Shape::Rectangle {
+        width: 10.0,
+        height: 20.0,
+    };
+    let bytes = shape.to_bytes();
+    let recovered: Shape = Oxide::from_bytes(&bytes).unwrap();
+    assert_eq!(recovered, shape);
+}
+
+/// Test tuple struct
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide, PartialEq)]
+struct Pair(String, i32);
+
+#[test]
+fn tuple_struct() {
+    // Schema should be Tuple
+    if let Structure::Tuple(elems) = Pair::schema() {
+        assert_eq!(elems.len(), 2);
+    } else {
+        panic!("Expected Tuple schema");
+    }
+
+    // Roundtrip
+    let pair = Pair("test".to_string(), 42);
+    let bytes = pair.to_bytes();
+    let recovered: Pair = Oxide::from_bytes(&bytes).unwrap();
+    assert_eq!(recovered, pair);
+}
+
+/// Test unit struct
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide, PartialEq)]
+struct Marker;
+
+#[test]
+fn unit_struct() {
+    // Schema should be Unit
+    assert!(matches!(Marker::schema(), Structure::Unit));
+
+    // Roundtrip
+    let bytes = Marker.to_bytes();
+    let _recovered: Marker = Oxide::from_bytes(&bytes).unwrap();
+}
+
+/// Test #[oxide(rename)] attribute
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
+struct RenamedFields {
+    #[oxide(rename = "firstName")]
+    first_name: String,
+    #[oxide(rename = "lastName")]
+    last_name: String,
+}
+
+#[test]
+fn oxide_rename_attribute() {
+    if let Structure::Record(fields) = RenamedFields::schema() {
+        assert!(fields.contains_key("firstName"));
+        assert!(fields.contains_key("lastName"));
+        assert!(!fields.contains_key("first_name"));
+    } else {
+        panic!("Expected Record schema");
+    }
+}
+
+/// Test #[oxide(skip)] attribute
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
+#[allow(dead_code)]
+struct WithSkipped {
+    name: String,
+    #[oxide(skip)]
+    #[serde(skip)]
+    cached_value: i32,
+}
+
+#[test]
+fn oxide_skip_attribute() {
+    if let Structure::Record(fields) = WithSkipped::schema() {
+        assert!(fields.contains_key("name"));
+        assert!(!fields.contains_key("cached_value"));
+    } else {
+        panic!("Expected Record schema");
+    }
+}
+
+/// Test generic struct
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
+#[serde(bound = "T: Oxide")]
+struct Wrapper<T: Oxide> {
+    inner: T,
+}
+
+#[test]
+fn generic_struct() {
+    // Schema for Wrapper<String>
+    let schema = <Wrapper<String>>::schema();
+    if let Structure::Record(fields) = schema {
+        assert!(fields.contains_key("inner"));
+    } else {
+        panic!("Expected Record schema");
+    }
+
+    // Roundtrip
+    let wrapper = Wrapper {
+        inner: "hello".to_string(),
+    };
+    let bytes = wrapper.to_bytes();
+    let recovered: Wrapper<String> = Oxide::from_bytes(&bytes).unwrap();
+    assert_eq!(recovered.inner, "hello");
 }

@@ -9,5 +9,10 @@ ciborium = "0.2.2"
 indexmap = { version = "2.12.1", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
+polyepoxide-derive = { path = "../polyepoxide-derive", optional = true }
+
+[features]
+default = ["derive"]
+derive = ["polyepoxide-derive"]
 
 [dev-dependencies]

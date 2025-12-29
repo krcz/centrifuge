@@ -26,17 +26,26 @@
 //! # Canonicalization Note
 //!
 //! **WARNING**: Canonical CBOR serialization is not yet fully implemented.
-//! For deterministic content addressing, ensure that:
-//! - Record fields are defined in consistent order (use IndexMap)
-//! - Map keys are sorted before serialization when using unordered maps
 //!
-//! This will be addressed in a future version.
+//! **Map key ordering**: The design document specifies that `Map` entries should be
+//! sorted by key for deterministic hashing (RFC 8949 §4.2.1: sort by serialized length
+//! first, then lexicographically). Currently, serde/ciborium does NOT sort map keys
+//! automatically. This means:
+//! - `HashMap<K, V>` serialization order is non-deterministic
+//! - Two logically equal maps may produce different CBOR bytes and different content hashes
+//!
+//! **Workarounds**:
+//! - Pre-sort map entries before serialization
+//! - Use `BTreeMap` for naturally sorted keys (lexicographic on Debug representation)
+//!
+//! A proper fix requires either custom serialization or post-processing CBOR bytes.
 
 mod bond;
 mod cell;
 mod key;
 mod oxide;
 mod schema;
+pub mod serde_helpers;
 mod solvent;
 
 pub use bond::Bond;
@@ -45,3 +54,6 @@ pub use key::Key;
 pub use oxide::{BondMapper, BondVisitor, ByteString, Oxide};
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
+
+#[cfg(feature = "derive")]
+pub use polyepoxide_derive::{oxide, Oxide};

@@ -213,6 +213,26 @@ impl<T: Oxide> Oxide for Option<T> {
     }
 }
 
+impl<T: Oxide, E: Oxide> Oxide for Result<T, E> {
+    fn schema() -> Structure {
+        Structure::result(T::schema(), E::schema())
+    }
+
+    fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
+        match self {
+            Ok(v) => v.visit_bonds(visitor),
+            Err(e) => e.visit_bonds(visitor),
+        }
+    }
+
+    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self {
+        match self {
+            Ok(v) => Ok(v.map_bonds(mapper)),
+            Err(e) => Err(e.map_bonds(mapper)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
