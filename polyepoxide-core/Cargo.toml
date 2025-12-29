@@ -16,3 +16,4 @@ default = ["derive"]
 derive = ["polyepoxide-derive"]
 
 [dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }

@@ -4,6 +4,31 @@ use syn::{parse_macro_input, DeriveInput};
 
 mod schema;
 
+/// Parse the crate path from #[oxide(crate = path)] attribute.
+fn parse_crate_path(input: &DeriveInput) -> proc_macro2::TokenStream {
+    for attr in &input.attrs {
+        if !attr.path().is_ident("oxide") {
+            continue;
+        }
+
+        let mut crate_path: Option<syn::Path> = None;
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("crate") {
+                let value = meta.value()?;
+                crate_path = Some(value.parse()?);
+            }
+            Ok(())
+        });
+
+        if let Some(path) = crate_path {
+            return quote! { #path };
+        }
+    }
+
+    // Default to ::polyepoxide_core
+    quote! { ::polyepoxide_core }
+}
+
 /// Attribute macro that derives all required traits for Oxide types.
 ///
 /// This is syntax sugar that expands to:
@@ -151,18 +176,19 @@ pub fn derive_oxide(input: TokenStream) -> TokenStream {
 fn derive_oxide_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let name = &input.ident;
     let generics = &input.generics;
+    let crate_path = parse_crate_path(input);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     // Build where clause with Oxide bounds for type parameters
-    let where_clause = build_where_clause(generics, where_clause);
+    let where_clause = build_where_clause(generics, where_clause, &crate_path);
 
-    let schema_impl = schema::generate_schema(input)?;
-    let visit_bonds_impl = generate_visit_bonds(input)?;
-    let map_bonds_impl = generate_map_bonds(input)?;
+    let schema_impl = schema::generate_schema(input, &crate_path)?;
+    let visit_bonds_impl = generate_visit_bonds(input, &crate_path)?;
+    let map_bonds_impl = generate_map_bonds(input, &crate_path)?;
 
     Ok(quote! {
-        impl #impl_generics ::polyepoxide_core::Oxide for #name #ty_generics #where_clause {
+        impl #impl_generics #crate_path::Oxide for #name #ty_generics #where_clause {
             #schema_impl
             #visit_bonds_impl
             #map_bonds_impl
@@ -173,6 +199,7 @@ fn derive_oxide_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
 fn build_where_clause(
     generics: &syn::Generics,
     existing: Option<&syn::WhereClause>,
+    crate_path: &proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let type_params: Vec<_> = generics.type_params().map(|p| &p.ident).collect();
 
@@ -181,7 +208,7 @@ fn build_where_clause(
     }
 
     let oxide_bounds = type_params.iter().map(|p| {
-        quote! { #p: ::polyepoxide_core::Oxide }
+        quote! { #p: #crate_path::Oxide }
     });
 
     let existing_predicates = existing.map(|w| {
@@ -197,25 +224,25 @@ fn build_where_clause(
     }
 }
 
-fn generate_visit_bonds(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_visit_bonds(input: &DeriveInput, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
     match &input.data {
-        syn::Data::Struct(data) => generate_visit_bonds_struct(data),
-        syn::Data::Enum(data) => generate_visit_bonds_enum(data),
+        syn::Data::Struct(data) => generate_visit_bonds_struct(data, crate_path),
+        syn::Data::Enum(data) => generate_visit_bonds_enum(data, crate_path),
         syn::Data::Union(_) => Err(syn::Error::new_spanned(input, "Oxide cannot be derived for unions")),
     }
 }
 
-fn generate_visit_bonds_struct(data: &syn::DataStruct) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_visit_bonds_struct(data: &syn::DataStruct, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
     let visits = generate_field_visits(&data.fields, quote! { self })?;
 
     Ok(quote! {
-        fn visit_bonds(&self, visitor: &mut dyn ::polyepoxide_core::BondVisitor) {
+        fn visit_bonds(&self, visitor: &mut dyn #crate_path::BondVisitor) {
             #visits
         }
     })
 }
 
-fn generate_visit_bonds_enum(data: &syn::DataEnum) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_visit_bonds_enum(data: &syn::DataEnum, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
     let arms: Vec<_> = data.variants.iter().map(|variant| {
         let variant_ident = &variant.ident;
 
@@ -263,7 +290,7 @@ fn generate_visit_bonds_enum(data: &syn::DataEnum) -> syn::Result<proc_macro2::T
     }).collect();
 
     Ok(quote! {
-        fn visit_bonds(&self, visitor: &mut dyn ::polyepoxide_core::BondVisitor) {
+        fn visit_bonds(&self, visitor: &mut dyn #crate_path::BondVisitor) {
             match self {
                 #(#arms)*
             }
@@ -302,10 +329,10 @@ fn generate_field_visits(
     }
 }
 
-fn generate_map_bonds(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_map_bonds(input: &DeriveInput, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
     match &input.data {
-        syn::Data::Struct(data) => generate_map_bonds_struct(&input.ident, data),
-        syn::Data::Enum(data) => generate_map_bonds_enum(data),
+        syn::Data::Struct(data) => generate_map_bonds_struct(&input.ident, data, crate_path),
+        syn::Data::Enum(data) => generate_map_bonds_enum(data, crate_path),
         syn::Data::Union(_) => Err(syn::Error::new_spanned(input, "Oxide cannot be derived for unions")),
     }
 }
@@ -313,17 +340,18 @@ fn generate_map_bonds(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStre
 fn generate_map_bonds_struct(
     name: &syn::Ident,
     data: &syn::DataStruct,
+    crate_path: &proc_macro2::TokenStream,
 ) -> syn::Result<proc_macro2::TokenStream> {
     let construction = generate_field_mappings(name, &data.fields)?;
 
     Ok(quote! {
-        fn map_bonds(&self, mapper: &mut impl ::polyepoxide_core::BondMapper) -> Self {
+        fn map_bonds(&self, mapper: &mut impl #crate_path::BondMapper) -> Self {
             #construction
         }
     })
 }
 
-fn generate_map_bonds_enum(data: &syn::DataEnum) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_map_bonds_enum(data: &syn::DataEnum, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
     let arms: Vec<_> = data.variants.iter().map(|variant| {
         let variant_ident = &variant.ident;
 
@@ -374,7 +402,7 @@ fn generate_map_bonds_enum(data: &syn::DataEnum) -> syn::Result<proc_macro2::Tok
     }).collect();
 
     Ok(quote! {
-        fn map_bonds(&self, mapper: &mut impl ::polyepoxide_core::BondMapper) -> Self {
+        fn map_bonds(&self, mapper: &mut impl #crate_path::BondMapper) -> Self {
             match self {
                 #(#arms),*
             }

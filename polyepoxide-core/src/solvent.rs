@@ -1,11 +1,13 @@
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::bond::Bond;
 use crate::cell::Cell;
 use crate::key::Key;
 use crate::oxide::{BondMapper, Oxide};
+use crate::schema::Structure;
+use crate::store::Store;
 
 /// Error type for solvent operations.
 #[derive(Debug, thiserror::Error)]
@@ -118,6 +120,73 @@ impl Solvent {
             }
         }
     }
+
+    /// Persists a cell and all its transitive bond dependencies to a store.
+    ///
+    /// Also persists the schema tree for the value's type.
+    /// Returns the value key and schema key.
+    pub fn persist_cell<T: Oxide, S: Store>(
+        &self,
+        cell: &Cell<T>,
+        store: &S,
+    ) -> Result<(Key, Key), S::Error> {
+        let mut visited = HashSet::new();
+
+        // Persist the schema tree first
+        // Use a temporary solvent to resolve schema bonds
+        let mut schema_solvent = Solvent::new();
+        let schema = T::schema();
+        let schema_cell = schema_solvent.add(schema);
+        let schema_key = schema_cell.key();
+
+        // Persist all schemas from the solvent
+        for (key, any_cell) in &schema_solvent.cells {
+            if let Some(structure_cell) = any_cell.clone().downcast::<Cell<Structure>>().ok() {
+                let bytes = structure_cell.value().to_bytes();
+                store.put(key, &bytes)?;
+                visited.insert(*key);
+            }
+        }
+
+        // Persist the value and all bond dependencies
+        self.persist_value(cell.value(), store, &mut visited)?;
+
+        Ok((cell.key(), schema_key))
+    }
+
+    /// Persists a value and all its bond dependencies.
+    /// Uses dependency-first order: children are stored before parents.
+    fn persist_value<T: Oxide, S: Store>(
+        &self,
+        value: &T,
+        store: &S,
+        visited: &mut HashSet<Key>,
+    ) -> Result<(), S::Error> {
+        let key = value.compute_key();
+        if visited.contains(&key) {
+            return Ok(());
+        }
+        visited.insert(key);
+
+        // First persist all bond dependencies (children before parent)
+        let mut mapper = PersistingMapper {
+            solvent: self,
+            store,
+            visited,
+            error: None,
+        };
+        value.map_bonds(&mut mapper);
+
+        if let Some(e) = mapper.error {
+            return Err(e);
+        }
+
+        // Then persist this value
+        let bytes = value.to_bytes();
+        store.put(&key, &bytes)?;
+
+        Ok(())
+    }
 }
 
 impl Default for Solvent {
@@ -135,8 +204,13 @@ impl BondMapper for SolventBondMapper<'_> {
     fn map_bond<T: Oxide>(&mut self, bond: Bond<T>) -> Bond<T> {
         match bond {
             Bond::Unresolved(key) => {
-                // Unresolved bond - keep as-is (can't access the value)
-                Bond::Unresolved(key)
+                // Try to resolve by looking up in the solvent
+                if let Some(cell) = self.solvent.get::<T>(&key) {
+                    Bond::from_cell(cell)
+                } else {
+                    // Not found - keep as unresolved
+                    Bond::Unresolved(key)
+                }
             }
             Bond::Resolved(cell) => {
                 // Resolved bond - recursively add the value to the solvent
@@ -145,6 +219,42 @@ impl BondMapper for SolventBondMapper<'_> {
                 self.solvent.add_and_bond(value)
             }
         }
+    }
+}
+
+/// Bond mapper that persists bond targets to a store.
+struct PersistingMapper<'a, S: Store> {
+    solvent: &'a Solvent,
+    store: &'a S,
+    visited: &'a mut HashSet<Key>,
+    error: Option<S::Error>,
+}
+
+impl<S: Store> BondMapper for PersistingMapper<'_, S> {
+    fn map_bond<T: Oxide>(&mut self, bond: Bond<T>) -> Bond<T> {
+        if self.error.is_some() {
+            return bond;
+        }
+
+        let key = bond.key();
+        if self.visited.contains(&key) {
+            return bond;
+        }
+        self.visited.insert(key);
+
+        // Get the cell from solvent and persist it
+        if let Some(cell) = self.solvent.get::<T>(&key) {
+            let bytes = cell.value().to_bytes();
+            if let Err(e) = self.store.put(&key, &bytes) {
+                self.error = Some(e);
+                return bond;
+            }
+
+            // Recursively persist nested bonds
+            cell.value().map_bonds(self);
+        }
+
+        bond
     }
 }
 

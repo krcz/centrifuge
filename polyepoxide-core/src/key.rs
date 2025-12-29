@@ -1,14 +1,62 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 /// A 32-byte Blake3 hash that uniquely identifies an oxide.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// Keys are serialized as CBOR byte strings (major type 2), not as arrays.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Key([u8; 32]);
+
+impl Serialize for Key {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Key {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct KeyVisitor;
+
+        impl serde::de::Visitor<'_> for KeyVisitor {
+            type Value = Key;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("32-byte key")
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if v.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(v);
+                    Ok(Key(arr))
+                } else {
+                    Err(E::invalid_length(v.len(), &"32 bytes"))
+                }
+            }
+        }
+
+        deserializer.deserialize_bytes(KeyVisitor)
+    }
+}
 
 impl Key {
     /// Computes the key (hash) of the given data.
     pub fn from_data(data: &[u8]) -> Self {
         Key(*blake3::hash(data).as_bytes())
+    }
+
+    /// Creates a key from raw bytes (e.g., when deserializing from CBOR).
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Key(bytes)
     }
 
     /// Returns the key as a byte slice.

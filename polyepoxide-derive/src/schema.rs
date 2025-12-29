@@ -5,12 +5,12 @@ use syn::{DeriveInput, Type};
 use crate::{parse_field_attrs, FieldAttrs};
 
 /// Generates the `schema()` method implementation.
-pub fn generate_schema(input: &DeriveInput) -> syn::Result<TokenStream> {
+pub fn generate_schema(input: &DeriveInput, crate_path: &TokenStream) -> syn::Result<TokenStream> {
     let self_type = &input.ident;
 
     match &input.data {
-        syn::Data::Struct(data) => generate_schema_struct(self_type, data),
-        syn::Data::Enum(data) => generate_schema_enum(self_type, data),
+        syn::Data::Struct(data) => generate_schema_struct(self_type, data, crate_path),
+        syn::Data::Enum(data) => generate_schema_enum(self_type, data, crate_path),
         syn::Data::Union(_) => Err(syn::Error::new_spanned(
             input,
             "Oxide cannot be derived for unions",
@@ -21,6 +21,7 @@ pub fn generate_schema(input: &DeriveInput) -> syn::Result<TokenStream> {
 fn generate_schema_struct(
     self_type: &syn::Ident,
     data: &syn::DataStruct,
+    crate_path: &TokenStream,
 ) -> syn::Result<TokenStream> {
     let schema_expr = match &data.fields {
         syn::Fields::Named(fields) => {
@@ -34,11 +35,11 @@ fn generate_schema_struct(
                     }
                     let name = get_field_name(f, &attrs);
                     let ty = &f.ty;
-                    let schema = type_to_schema(ty, self_type);
+                    let schema = type_to_schema(ty, self_type, crate_path);
                     Some(quote! { (#name, #schema) })
                 })
                 .collect();
-            quote! { ::polyepoxide_core::Structure::record([#(#field_schemas),*]) }
+            quote! { #crate_path::Structure::record([#(#field_schemas),*]) }
         }
         syn::Fields::Unnamed(fields) => {
             let elem_schemas: Vec<_> = fields
@@ -49,25 +50,25 @@ fn generate_schema_struct(
                     if attrs.skip {
                         return None;
                     }
-                    let schema = type_to_schema(&f.ty, self_type);
+                    let schema = type_to_schema(&f.ty, self_type, crate_path);
                     Some(schema)
                 })
                 .collect();
-            quote! { ::polyepoxide_core::Structure::tuple([#(#elem_schemas),*]) }
+            quote! { #crate_path::Structure::tuple([#(#elem_schemas),*]) }
         }
         syn::Fields::Unit => {
-            quote! { ::polyepoxide_core::Structure::Unit }
+            quote! { #crate_path::Structure::Unit }
         }
     };
 
     Ok(quote! {
-        fn schema() -> ::polyepoxide_core::Structure {
+        fn schema() -> #crate_path::Structure {
             #schema_expr
         }
     })
 }
 
-fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum) -> syn::Result<TokenStream> {
+fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum, crate_path: &TokenStream) -> syn::Result<TokenStream> {
     // Check if all variants are unit variants (C-style enum)
     let all_unit = data
         .variants
@@ -87,7 +88,7 @@ fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum) -> syn::Re
                 quote! { #name.to_string() }
             })
             .collect();
-        quote! { ::polyepoxide_core::Structure::Enum(vec![#(#variant_names),*]) }
+        quote! { #crate_path::Structure::Enum(vec![#(#variant_names),*]) }
     } else {
         // Tagged union: Structure::tagged
         let variant_schemas: Vec<_> = data
@@ -98,24 +99,24 @@ fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum) -> syn::Re
                 let name = attrs
                     .rename
                     .unwrap_or_else(|| v.ident.to_string());
-                let payload = variant_payload_schema(&v.fields, self_type);
+                let payload = variant_payload_schema(&v.fields, self_type, crate_path);
                 quote! { (#name, #payload) }
             })
             .collect();
-        quote! { ::polyepoxide_core::Structure::tagged([#(#variant_schemas),*]) }
+        quote! { #crate_path::Structure::tagged([#(#variant_schemas),*]) }
     };
 
     Ok(quote! {
-        fn schema() -> ::polyepoxide_core::Structure {
+        fn schema() -> #crate_path::Structure {
             #schema_expr
         }
     })
 }
 
-fn variant_payload_schema(fields: &syn::Fields, self_type: &syn::Ident) -> TokenStream {
+fn variant_payload_schema(fields: &syn::Fields, self_type: &syn::Ident, crate_path: &TokenStream) -> TokenStream {
     match fields {
         syn::Fields::Unit => {
-            quote! { ::polyepoxide_core::Structure::Unit }
+            quote! { #crate_path::Structure::Unit }
         }
         syn::Fields::Named(named) => {
             let field_schemas: Vec<_> = named
@@ -127,11 +128,11 @@ fn variant_payload_schema(fields: &syn::Fields, self_type: &syn::Ident) -> Token
                         return None;
                     }
                     let name = get_field_name(f, &attrs);
-                    let schema = type_to_schema(&f.ty, self_type);
+                    let schema = type_to_schema(&f.ty, self_type, crate_path);
                     Some(quote! { (#name, #schema) })
                 })
                 .collect();
-            quote! { ::polyepoxide_core::Structure::record([#(#field_schemas),*]) }
+            quote! { #crate_path::Structure::record([#(#field_schemas),*]) }
         }
         syn::Fields::Unnamed(unnamed) => {
             if unnamed.unnamed.len() == 1 {
@@ -139,9 +140,9 @@ fn variant_payload_schema(fields: &syn::Fields, self_type: &syn::Ident) -> Token
                 let f = &unnamed.unnamed[0];
                 let attrs = parse_field_attrs(&f.attrs);
                 if attrs.skip {
-                    quote! { ::polyepoxide_core::Structure::Unit }
+                    quote! { #crate_path::Structure::Unit }
                 } else {
-                    type_to_schema(&f.ty, self_type)
+                    type_to_schema(&f.ty, self_type, crate_path)
                 }
             } else {
                 let elem_schemas: Vec<_> = unnamed
@@ -152,10 +153,10 @@ fn variant_payload_schema(fields: &syn::Fields, self_type: &syn::Ident) -> Token
                         if attrs.skip {
                             return None;
                         }
-                        Some(type_to_schema(&f.ty, self_type))
+                        Some(type_to_schema(&f.ty, self_type, crate_path))
                     })
                     .collect();
-                quote! { ::polyepoxide_core::Structure::tuple([#(#elem_schemas),*]) }
+                quote! { #crate_path::Structure::tuple([#(#elem_schemas),*]) }
             }
         }
     }
@@ -170,12 +171,12 @@ fn get_field_name(field: &syn::Field, attrs: &FieldAttrs) -> String {
 
 /// Convert a Rust type to its Schema representation.
 /// Detects self-references and replaces them with SelfRef(0).
-fn type_to_schema(ty: &Type, self_type: &syn::Ident) -> TokenStream {
+fn type_to_schema(ty: &Type, self_type: &syn::Ident, crate_path: &TokenStream) -> TokenStream {
     match ty {
         Type::Path(type_path) => {
             // Check if this is a self-reference
             if is_self_reference(type_path, self_type) {
-                return quote! { ::polyepoxide_core::Structure::SelfRef(0) };
+                return quote! { #crate_path::Structure::SelfRef(0) };
             }
 
             let last_segment = type_path.path.segments.last();
@@ -186,26 +187,26 @@ fn type_to_schema(ty: &Type, self_type: &syn::Ident) -> TokenStream {
                     // Wrapper types that need special handling for SelfRef detection
                     "Vec" => {
                         if let Some(inner) = extract_single_generic_arg(&segment.arguments) {
-                            let inner_schema = type_to_schema(&inner, self_type);
-                            return quote! { ::polyepoxide_core::Structure::sequence(#inner_schema) };
+                            let inner_schema = type_to_schema(&inner, self_type, crate_path);
+                            return quote! { #crate_path::Structure::sequence(#inner_schema) };
                         }
                     }
                     "Option" => {
                         if let Some(inner) = extract_single_generic_arg(&segment.arguments) {
-                            let inner_schema = type_to_schema(&inner, self_type);
-                            return quote! { ::polyepoxide_core::Structure::option(#inner_schema) };
+                            let inner_schema = type_to_schema(&inner, self_type, crate_path);
+                            return quote! { #crate_path::Structure::option(#inner_schema) };
                         }
                     }
                     "Bond" => {
                         if let Some(inner) = extract_single_generic_arg(&segment.arguments) {
-                            let inner_schema = type_to_schema(&inner, self_type);
-                            return quote! { ::polyepoxide_core::Structure::bond(#inner_schema) };
+                            let inner_schema = type_to_schema(&inner, self_type, crate_path);
+                            return quote! { #crate_path::Structure::bond(#inner_schema) };
                         }
                     }
                     "Box" => {
                         if let Some(inner) = extract_single_generic_arg(&segment.arguments) {
                             // Box<T> has same schema as T
-                            return type_to_schema(&inner, self_type);
+                            return type_to_schema(&inner, self_type, crate_path);
                         }
                     }
                     _ => {}
@@ -213,26 +214,26 @@ fn type_to_schema(ty: &Type, self_type: &syn::Ident) -> TokenStream {
             }
 
             // Delegate to the type's Oxide implementation
-            quote! { <#type_path as ::polyepoxide_core::Oxide>::schema() }
+            quote! { <#type_path as #crate_path::Oxide>::schema() }
         }
         Type::Tuple(tuple) if tuple.elems.is_empty() => {
-            quote! { ::polyepoxide_core::Structure::Unit }
+            quote! { #crate_path::Structure::Unit }
         }
         Type::Tuple(tuple) => {
             let elem_schemas: Vec<_> = tuple
                 .elems
                 .iter()
-                .map(|t| type_to_schema(t, self_type))
+                .map(|t| type_to_schema(t, self_type, crate_path))
                 .collect();
-            quote! { ::polyepoxide_core::Structure::tuple([#(#elem_schemas),*]) }
+            quote! { #crate_path::Structure::tuple([#(#elem_schemas),*]) }
         }
         Type::Reference(reference) => {
             // References have same schema as the referenced type
-            type_to_schema(&reference.elem, self_type)
+            type_to_schema(&reference.elem, self_type, crate_path)
         }
         _ => {
             // Fallback: delegate to Oxide implementation
-            quote! { <#ty as ::polyepoxide_core::Oxide>::schema() }
+            quote! { <#ty as #crate_path::Oxide>::schema() }
         }
     }
 }

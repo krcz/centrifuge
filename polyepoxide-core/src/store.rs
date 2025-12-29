@@ -24,6 +24,22 @@ pub trait Store {
     fn has(&self, key: &Key) -> Result<bool, Self::Error>;
 }
 
+impl<S: Store> Store for &S {
+    type Error = S::Error;
+
+    fn get(&self, key: &Key) -> Result<Option<Vec<u8>>, Self::Error> {
+        (*self).get(key)
+    }
+
+    fn put(&self, key: &Key, value: &[u8]) -> Result<(), Self::Error> {
+        (*self).put(key, value)
+    }
+
+    fn has(&self, key: &Key) -> Result<bool, Self::Error> {
+        (*self).has(key)
+    }
+}
+
 /// An in-memory store backed by a HashMap.
 ///
 /// Useful for testing and as a reference implementation.

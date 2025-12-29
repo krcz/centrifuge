@@ -40,6 +40,7 @@
 //!
 //! A proper fix requires either custom serialization or post-processing CBOR bytes.
 
+mod async_store;
 mod bond;
 mod cell;
 mod key;
@@ -48,7 +49,9 @@ mod schema;
 pub mod serde_helpers;
 mod solvent;
 mod store;
+mod sync;
 
+pub use async_store::AsyncStore;
 pub use bond::Bond;
 pub use cell::Cell;
 pub use key::Key;
@@ -56,6 +59,7 @@ pub use oxide::{BondMapper, BondVisitor, ByteString, Oxide};
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
 pub use store::{MemoryStore, Store};
+pub use sync::{pull, push, SyncError};
 
 #[cfg(feature = "derive")]
 pub use polyepoxide_derive::{oxide, Oxide};

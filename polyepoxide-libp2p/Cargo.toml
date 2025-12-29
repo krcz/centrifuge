@@ -1,0 +1,17 @@
+[package]
+name = "polyepoxide-libp2p"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+polyepoxide-core = { path = "../polyepoxide-core" }
+libp2p = { version = "0.54", features = ["tcp", "quic", "yamux", "noise", "tokio", "macros", "request-response"] }
+ciborium = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+thiserror = "2.0"
+futures = "0.3"
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "test-util"] }
