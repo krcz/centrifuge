@@ -47,6 +47,7 @@ mod oxide;
 mod schema;
 pub mod serde_helpers;
 mod solvent;
+mod store;
 
 pub use bond::Bond;
 pub use cell::Cell;
@@ -54,6 +55,7 @@ pub use key::Key;
 pub use oxide::{BondMapper, BondVisitor, ByteString, Oxide};
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
+pub use store::{MemoryStore, Store};
 
 #[cfg(feature = "derive")]
 pub use polyepoxide_derive::{oxide, Oxide};
