@@ -1,0 +1,13 @@
+[package]
+name = "polyepoxide-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+blake3 = "1.8.2"
+ciborium = "0.2.2"
+indexmap = { version = "2.12.1", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.17"
+
+[dev-dependencies]
