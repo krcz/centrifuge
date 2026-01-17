@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["aldehyde"]
+members = ["aldehyde-core", "aldehyde-inventory", "aldehyde-cal"]

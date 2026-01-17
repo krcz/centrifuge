@@ -1,0 +1,12 @@
+[package]
+name = "aldehyde-cal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aldehyde-core = { path = "../aldehyde-core" }
+polyepoxide-core = { path = "../../polyepoxide-rs/polyepoxide-core" }
+polyepoxide-derive = { path = "../../polyepoxide-rs/polyepoxide-derive" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
