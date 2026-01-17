@@ -1,0 +1,13 @@
+[package]
+name = "polyepoxide-fjall"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+polyepoxide-core = { path = "../polyepoxide-core" }
+cid = "0.11"
+fjall = "3"
+thiserror = "2.0.17"
+
+[dev-dependencies]
+tempfile = "3"
