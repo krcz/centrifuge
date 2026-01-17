@@ -40,6 +40,7 @@ pub mod serde_helpers;
 mod solvent;
 mod store;
 mod sync;
+pub mod traverse;
 
 pub use async_store::AsyncStore;
 pub use bond::Bond;

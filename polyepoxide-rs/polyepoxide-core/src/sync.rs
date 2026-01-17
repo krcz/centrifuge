@@ -8,6 +8,7 @@
 use cid::Cid;
 use std::sync::Arc;
 
+use crate::traverse::collect_bonds;
 use crate::{AsyncStore, Cell, Solvent, Structure};
 
 /// Error during sync operations.
@@ -212,83 +213,6 @@ where
         _ => {}
     }
     Ok(())
-}
-
-/// Extract bond targets from a value given its schema.
-/// Appends (value_cid, schema_cid) pairs to `bonds`.
-/// Silently skips malformed data - we only care about finding bonds.
-fn collect_bonds(
-    value: &ipld_core::ipld::Ipld,
-    schema: &Structure,
-    schemas: &Solvent,
-    bonds: &mut Vec<(Cid, Cid)>,
-) {
-    use ipld_core::ipld::Ipld;
-
-    match schema {
-        Structure::Bond(inner_schema) => {
-            // In DAG-CBOR, CIDs are represented as Ipld::Link
-            if let Ipld::Link(target_cid) = value {
-                bonds.push((*target_cid, inner_schema.cid()));
-            }
-        }
-        Structure::Record(fields) => {
-            if let Ipld::Map(map) = value {
-                for (name, field_schema_bond) in fields {
-                    if let Some(fv) = map.get(name) {
-                        if let Some(s) = field_schema_bond.value() {
-                            collect_bonds(fv, s, schemas, bonds);
-                        }
-                    }
-                }
-            }
-        }
-        Structure::Sequence(inner) => {
-            if let Ipld::List(arr) = value {
-                if let Some(inner_schema) = inner.value() {
-                    for elem in arr {
-                        collect_bonds(elem, inner_schema, schemas, bonds);
-                    }
-                }
-            }
-        }
-        Structure::Tuple(elems) => {
-            if let Ipld::List(arr) = value {
-                for (elem_schema_bond, elem_val) in elems.iter().zip(arr.iter()) {
-                    if let Some(s) = elem_schema_bond.value() {
-                        collect_bonds(elem_val, s, schemas, bonds);
-                    }
-                }
-            }
-        }
-        Structure::Tagged(variants) => {
-            if let Ipld::Map(map) = value {
-                if map.len() == 1 {
-                    if let Some((name, val)) = map.iter().next() {
-                        if let Some(variant_schema_bond) = variants.get(name) {
-                            if let Some(s) = variant_schema_bond.value() {
-                                collect_bonds(val, s, schemas, bonds);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Structure::Map { key: k, value: v } | Structure::OrderedMap { key: k, value: v } => {
-            if let Ipld::Map(map) = value {
-                if let (Some(ks), Some(vs)) = (k.value(), v.value()) {
-                    for (mk, mv) in map {
-                        // Note: In IPLD maps, keys are strings, not arbitrary values
-                        // For now we only recurse into values
-                        collect_bonds(mv, vs, schemas, bonds);
-                        // If key schema has bonds, we'd need to parse the string key
-                        let _ = (ks, mk); // Acknowledge unused for now
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Push a value and all its dependencies from source to destination.

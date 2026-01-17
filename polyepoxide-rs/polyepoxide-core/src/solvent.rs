@@ -1,4 +1,5 @@
 use cid::Cid;
+use log::debug;
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -49,6 +50,7 @@ impl Solvent {
         // Compute CID first - this is the same whether bonds are resolved or not,
         // since bonds serialize to just their CID
         let cid = value.compute_cid();
+        debug!("Adding {:?}", cid);
 
         // Check if already exists - return existing cell
         if let Some(existing) = self.cells.get(&cid) {
@@ -131,18 +133,26 @@ impl Solvent {
         store: &S,
     ) -> Result<(Cid, Cid), S::Error> {
         let mut visited = HashSet::new();
+        debug!("Persisting cell {:?}", cell.cid());
 
         // Persist the schema tree first
         // Use a temporary solvent to resolve schema bonds
+        debug!("aaa {:?}", cell.value());
         let mut schema_solvent = Solvent::new();
+        debug!("bbb");
         let schema = T::schema();
+        debug!("ccc");
         let schema_cell = schema_solvent.add(schema);
+        debug!("ddd");
         let schema_cid = schema_cell.cid();
+        debug!("eee");
 
         // Persist all schemas from the solvent
         for (cid, any_cell) in &schema_solvent.cells {
             if let Some(structure_cell) = any_cell.clone().downcast::<Cell<Structure>>().ok() {
+                debug!("Serializing {:?}", cid);
                 let bytes = structure_cell.value().to_bytes();
+                debug!("Putting {:?}", cid);
                 store.put(cid, &bytes)?;
                 visited.insert(*cid);
             }
@@ -163,6 +173,7 @@ impl Solvent {
         visited: &mut HashSet<Cid>,
     ) -> Result<(), S::Error> {
         let cid = value.compute_cid();
+        debug!("Persisting value {:?}", cid);
         if visited.contains(&cid) {
             return Ok(());
         }
