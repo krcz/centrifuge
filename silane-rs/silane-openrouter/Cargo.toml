@@ -1,0 +1,18 @@
+[package]
+name = "silane-openrouter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+polyepoxide-core = { path = "../../polyepoxide-rs/polyepoxide-core" }
+polyepoxide-llm = { path = "../../polyepoxide-rs/polyepoxide-llm" }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+base64 = "0.22"
+tracing = "0.1"
+cid = "0.11"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

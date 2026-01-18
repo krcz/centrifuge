@@ -1,0 +1,8 @@
+[package]
+name = "polyepoxide-llm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+polyepoxide-core = { path = "../polyepoxide-core" }
+serde = { version = "1.0", features = ["derive"] }
