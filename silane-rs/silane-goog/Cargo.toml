@@ -1,0 +1,18 @@
+[package]
+name = "silane-goog"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+google-calendar3 = "7"
+google-tasks1 = "7"
+yup-oauth2 = "12"
+hyper-rustls = { version = "0.27", features = ["http2"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
+aldehyde-cal = { path = "../../aldehyde-rs/aldehyde-cal" }
+polyepoxide-core = { path = "../../polyepoxide-rs/polyepoxide-core" }
+thiserror = "2.0"
+chrono = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

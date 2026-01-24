@@ -8,6 +8,7 @@ use crate::store::{default_store_path, StoreType};
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
     pub openrouter_api_key: Option<String>,
+    pub google_access_token: Option<String>,
     #[serde(default)]
     pub store: StoreConfig,
 }
@@ -61,6 +62,25 @@ pub fn load_api_key() -> Result<String, SihError> {
     }
 
     Err(SihError::ApiKeyNotFound)
+}
+
+pub fn load_google_token() -> Result<String, SihError> {
+    // First, try environment variable
+    if let Ok(token) = std::env::var("GOOGLE_ACCESS_TOKEN") {
+        if !token.is_empty() {
+            return Ok(token);
+        }
+    }
+
+    // Then, try config file
+    let config = load_config();
+    if let Some(token) = config.google_access_token {
+        if !token.is_empty() {
+            return Ok(token);
+        }
+    }
+
+    Err(SihError::GoogleTokenNotFound)
 }
 
 pub fn resolve_store_config(

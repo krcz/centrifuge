@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod gcal;
 mod store;
 
 #[cfg(feature = "chat")]
@@ -12,7 +13,8 @@ use cid::Cid;
 use clap::{Parser, Subcommand};
 use silane_openrouter::OpenRouterClient;
 
-use crate::config::{load_api_key, resolve_store_config};
+use crate::config::{load_api_key, load_google_token, resolve_store_config};
+use crate::gcal::GcalAction;
 use crate::store::{AppContext, StoreType};
 
 #[derive(Parser)]
@@ -48,6 +50,16 @@ enum Command {
         #[arg(long)]
         reasoning: Option<String>,
     },
+
+    /// Google Calendar operations
+    Gcal {
+        #[command(subcommand)]
+        action: GcalAction,
+
+        /// Override access token
+        #[arg(long, global = true)]
+        access_token: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -72,6 +84,15 @@ async fn main() -> anyhow::Result<()> {
                 .transpose()?;
 
             chat::run(ctx, client, model, reasoning, continue_cid).await?;
+        }
+        Command::Gcal {
+            action,
+            access_token,
+        } => {
+            let token = access_token
+                .map(Ok)
+                .unwrap_or_else(load_google_token)?;
+            gcal::run(ctx, &token, action).await?;
         }
     }
 

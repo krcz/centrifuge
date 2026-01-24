@@ -17,6 +17,8 @@ polyepoxide-llm = { path = "../../polyepoxide-rs/polyepoxide-llm" }
 polyepoxide-fjall = { path = "../../polyepoxide-rs/polyepoxide-fjall" }
 polyepoxide-rocks = { path = "../../polyepoxide-rs/polyepoxide-rocks" }
 silane-openrouter = { path = "../silane-openrouter" }
+silane-goog = { path = "../silane-goog" }
+aldehyde-cal = { path = "../../aldehyde-rs/aldehyde-cal" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 clap = { version = "4", features = ["derive"] }
 thiserror = "2.0"
