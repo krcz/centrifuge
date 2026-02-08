@@ -31,16 +31,16 @@ impl RocksStore {
 impl Store for RocksStore {
     type Error = RocksError;
 
-    fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_impl(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         Ok(self.db.get(cid.to_bytes())?)
     }
 
-    fn put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+    fn put_impl(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
         self.db.put(cid.to_bytes(), value)?;
         Ok(())
     }
 
-    fn has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+    fn has_impl(&self, cid: &Cid) -> Result<bool, Self::Error> {
         Ok(self.db.get_pinned(cid.to_bytes())?.is_some())
     }
 }

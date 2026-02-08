@@ -61,24 +61,24 @@ impl AnyStore {
 impl Store for AnyStore {
     type Error = AnyStoreError;
 
-    fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_impl(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         match self {
-            AnyStore::Fjall(s) => s.get(cid).map_err(Into::into),
-            AnyStore::Rocks(s) => s.get(cid).map_err(Into::into),
+            AnyStore::Fjall(s) => s.get_impl(cid).map_err(Into::into),
+            AnyStore::Rocks(s) => s.get_impl(cid).map_err(Into::into),
         }
     }
 
-    fn put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+    fn put_impl(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
         match self {
-            AnyStore::Fjall(s) => s.put(cid, value).map_err(Into::into),
-            AnyStore::Rocks(s) => s.put(cid, value).map_err(Into::into),
+            AnyStore::Fjall(s) => s.put_impl(cid, value).map_err(Into::into),
+            AnyStore::Rocks(s) => s.put_impl(cid, value).map_err(Into::into),
         }
     }
 
-    fn has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+    fn has_impl(&self, cid: &Cid) -> Result<bool, Self::Error> {
         match self {
-            AnyStore::Fjall(s) => s.has(cid).map_err(Into::into),
-            AnyStore::Rocks(s) => s.has(cid).map_err(Into::into),
+            AnyStore::Fjall(s) => s.has_impl(cid).map_err(Into::into),
+            AnyStore::Rocks(s) => s.has_impl(cid).map_err(Into::into),
         }
     }
 }

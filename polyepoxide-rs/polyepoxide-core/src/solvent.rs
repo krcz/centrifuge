@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::bond::Bond;
 use crate::cell::Cell;
 use crate::oxide::{BondMapper, Oxide};
+use crate::reflexive::is_identity_cid;
 use crate::schema::Structure;
 use crate::store::Store;
 
@@ -78,14 +79,25 @@ impl Solvent {
 
     /// Gets an oxide by CID, if it exists and has the correct type.
     pub fn get<T: Oxide>(&self, cid: &Cid) -> Option<Arc<Cell<T>>> {
-        self.cells
+        let existing = self
+            .cells
             .get(cid)
-            .and_then(|any| any.clone().downcast::<Cell<T>>().ok())
+            .and_then(|any| any.clone().downcast::<Cell<T>>().ok());
+        if existing.is_some() {
+            return existing;
+        }
+
+        if is_identity_cid(cid) {
+            let value = T::from_bytes(cid.hash().digest()).ok()?;
+            return Some(Arc::new(Cell::with_cid(value, *cid)));
+        }
+
+        None
     }
 
     /// Checks if an oxide with the given CID exists.
     pub fn contains(&self, cid: &Cid) -> bool {
-        self.cells.contains_key(cid)
+        self.cells.contains_key(cid) || is_identity_cid(cid)
     }
 
     /// Returns the number of oxides in the solvent.
@@ -345,6 +357,18 @@ mod tests {
 
         let still_unresolved = solvent.resolve(&unresolved);
         assert!(!still_unresolved.is_resolved());
+    }
+
+    #[test]
+    fn solvent_resolve_identity_virtual_cell() {
+        let solvent = Solvent::new();
+        let slot_cid = crate::slot_cid(2);
+        let unresolved: Bond<crate::Ligation> = Bond::from_cid(slot_cid);
+
+        let resolved = solvent.resolve(&unresolved);
+        assert!(resolved.is_resolved());
+        assert_eq!(resolved.cid(), slot_cid);
+        assert_eq!(resolved.value(), Some(&crate::Ligation::Slot(2)));
     }
 
     #[test]

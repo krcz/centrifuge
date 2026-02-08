@@ -43,16 +43,16 @@ impl FjallStore {
 impl Store for FjallStore {
     type Error = FjallError;
 
-    fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get_impl(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         Ok(self.keyspace.get(cid.to_bytes())?.map(|v| v.to_vec()))
     }
 
-    fn put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+    fn put_impl(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
         self.keyspace.insert(cid.to_bytes(), value)?;
         Ok(())
     }
 
-    fn has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+    fn has_impl(&self, cid: &Cid) -> Result<bool, Self::Error> {
         self.keyspace
             .contains_key(cid.to_bytes())
             .map_err(Into::into)

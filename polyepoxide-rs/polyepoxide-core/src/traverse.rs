@@ -77,7 +77,7 @@ pub fn collect_bonds(
                 }
             }
         }
-        Structure::Map { key: k, value: v } | Structure::OrderedMap { key: k, value: v } => {
+        Structure::Map { key: k, value: v } => {
             if let Ipld::Map(map) = value {
                 if let (Some(ks), Some(vs)) = (k.value(), v.value()) {
                     for (mk, mv) in map {
@@ -85,6 +85,20 @@ pub fn collect_bonds(
                         // For now we only recurse into values
                         collect_bonds(mv, vs, schemas, bonds);
                         let _ = (ks, mk); // Acknowledge unused for now
+                    }
+                }
+            }
+        }
+        Structure::OrderedMap { key: k, value: v } => {
+            if let (Some(ks), Some(vs)) = (k.value(), v.value()) {
+                if let Ipld::List(entries) = value {
+                    for entry in entries {
+                        if let Ipld::List(pair) = entry {
+                            if pair.len() == 2 {
+                                collect_bonds(&pair[0], ks, schemas, bonds);
+                                collect_bonds(&pair[1], vs, schemas, bonds);
+                            }
+                        }
                     }
                 }
             }

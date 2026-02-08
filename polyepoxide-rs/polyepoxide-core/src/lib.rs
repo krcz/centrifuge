@@ -35,6 +35,7 @@ mod async_store;
 mod bond;
 mod cell;
 mod oxide;
+mod reflexive;
 mod schema;
 pub mod serde_helpers;
 mod solvent;
@@ -47,6 +48,10 @@ pub use bond::Bond;
 pub use cell::Cell;
 pub use cid::Cid;
 pub use oxide::{BondMapper, BondVisitor, ByteString, Oxide, compute_cid};
+pub use reflexive::{
+    Ligation, MULTIHASH_IDENTITY, POLYEPOXIDE_REFLEXIVE_CODEC, is_identity_cid, is_reflexive_cid,
+    ligase_cid, make_identity_cid, resolve_ligation, resolve_reflexive_with_store, slot_cid,
+};
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
 pub use store::{MemoryStore, Store};

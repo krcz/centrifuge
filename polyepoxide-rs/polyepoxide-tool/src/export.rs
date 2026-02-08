@@ -124,6 +124,7 @@ fn ipld_to_json(
                 Ok(JsonValue::Object(obj))
             }
         }
+        (Ipld::Link(cid), Structure::Cid) => Ok(JsonValue::String(cid.to_string())),
         (Ipld::Map(map), Structure::Record(fields)) => {
             let mut obj = Map::new();
             for (name, field_schema_bond) in fields {
@@ -177,8 +178,7 @@ fn ipld_to_json(
             }
             Ok(ipld_to_json_raw(ipld))
         }
-        (Ipld::Map(map), Structure::Map { value: v, .. })
-        | (Ipld::Map(map), Structure::OrderedMap { value: v, .. }) => {
+        (Ipld::Map(map), Structure::Map { value: v, .. }) => {
             if let Some(vs) = v.value() {
                 let mut obj = Map::new();
                 for (mk, mv) in map {
@@ -186,6 +186,24 @@ fn ipld_to_json(
                     obj.insert(mk.clone(), json_val);
                 }
                 Ok(JsonValue::Object(obj))
+            } else {
+                Ok(ipld_to_json_raw(ipld))
+            }
+        }
+        (Ipld::List(entries), Structure::OrderedMap { key: k, value: v }) => {
+            if let (Some(ks), Some(vs)) = (k.value(), v.value()) {
+                let mut out = Vec::with_capacity(entries.len());
+                for entry in entries {
+                    match entry {
+                        Ipld::List(pair) if pair.len() == 2 => {
+                            let key_json = ipld_to_json(store, schemas, &pair[0], ks, depth)?;
+                            let value_json = ipld_to_json(store, schemas, &pair[1], vs, depth)?;
+                            out.push(JsonValue::Array(vec![key_json, value_json]));
+                        }
+                        other => out.push(ipld_to_json_raw(other)),
+                    }
+                }
+                Ok(JsonValue::Array(out))
             } else {
                 Ok(ipld_to_json_raw(ipld))
             }

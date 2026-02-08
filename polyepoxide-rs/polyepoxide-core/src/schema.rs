@@ -93,6 +93,8 @@ pub enum Structure {
     Unicode,
     /// Byte sequence.
     ByteString,
+    /// CID value encoded as DAG-CBOR link.
+    Cid,
     /// Integer types (signed and unsigned, various sizes).
     Int(IntType),
     /// Floating-point types.
@@ -217,6 +219,7 @@ impl Oxide for Structure {
             ("Char", Structure::Unit),
             ("Unicode", Structure::Unit),
             ("ByteString", Structure::Unit),
+            ("Cid", Structure::Unit),
             ("Int", IntType::schema()),
             ("Float", FloatType::schema()),
             ("Unit", Structure::Unit),
@@ -264,6 +267,7 @@ impl Oxide for Structure {
             | Structure::Char
             | Structure::Unicode
             | Structure::ByteString
+            | Structure::Cid
             | Structure::Int(_)
             | Structure::Float(_)
             | Structure::Unit
@@ -313,6 +317,7 @@ impl PartialEq for Structure {
             (Structure::Char, Structure::Char) => true,
             (Structure::Unicode, Structure::Unicode) => true,
             (Structure::ByteString, Structure::ByteString) => true,
+            (Structure::Cid, Structure::Cid) => true,
             (Structure::Int(a), Structure::Int(b)) => a == b,
             (Structure::Float(a), Structure::Float(b)) => a == b,
             (Structure::Unit, Structure::Unit) => true,
@@ -416,9 +421,10 @@ mod tests {
     fn structure_schema_is_tagged() {
         let schema = Structure::schema();
         if let Structure::Tagged(variants) = &schema {
-            // Should have all 16 variants
-            assert_eq!(variants.len(), 16);
+            // Should have all 17 variants
+            assert_eq!(variants.len(), 17);
             assert!(variants.contains_key("Bool"));
+            assert!(variants.contains_key("Cid"));
             assert!(variants.contains_key("Record"));
             assert!(variants.contains_key("SelfRef"));
         } else {

@@ -6,10 +6,12 @@
 //! source, checked against dest, stored if missing, then traversed for bonds.
 
 use cid::Cid;
+use ipld_core::ipld::Ipld;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::traverse::collect_bonds;
-use crate::{AsyncStore, Cell, Solvent, Structure};
+use crate::reflexive::parse_ligation_bytes;
+use crate::{AsyncStore, Cell, Solvent, Structure, is_reflexive_cid, resolve_ligation};
 
 /// Error during sync operations.
 #[derive(Debug, thiserror::Error)]
@@ -22,6 +24,13 @@ pub enum SyncError<S, D> {
     Source(S),
     #[error("destination store error: {0}")]
     Dest(D),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TraversalState {
+    value_cid: Cid,
+    schema_cid: Cid,
+    scope: Vec<Cid>,
 }
 
 /// Pull a value and all its dependencies from source to destination.
@@ -51,6 +60,7 @@ where
 {
     let mut transferred = Vec::new();
     let mut schemas = Solvent::new();
+    let mut visited = HashSet::new();
 
     pull_recursive(
         source,
@@ -59,6 +69,8 @@ where
         schema_cid,
         &mut schemas,
         &mut transferred,
+        &[],
+        &mut visited,
     )
     .await?;
 
@@ -73,11 +85,22 @@ async fn pull_recursive<S, D>(
     schema_cid: Cid,
     schemas: &mut Solvent,
     transferred: &mut Vec<Cid>,
+    scope: &[Cid],
+    visited: &mut HashSet<TraversalState>,
 ) -> Result<(), SyncError<S::Error, D::Error>>
 where
     S: AsyncStore,
     D: AsyncStore,
 {
+    let state = TraversalState {
+        value_cid,
+        schema_cid,
+        scope: scope.to_vec(),
+    };
+    if !visited.insert(state) {
+        return Ok(());
+    }
+
     // If dest already has this CID, all dependencies are present (invariant)
     if dest.async_has(&value_cid).await.map_err(SyncError::Dest)? {
         return Ok(());
@@ -94,23 +117,21 @@ where
         .ok_or(SyncError::NotFound(value_cid))?;
 
     // Parse to discover bonds (use serde_ipld_dagcbor for DAG-CBOR)
-    let value: ipld_core::ipld::Ipld = serde_ipld_dagcbor::from_slice(&value_bytes)
+    let value: Ipld = serde_ipld_dagcbor::from_slice(&value_bytes)
         .map_err(|e| SyncError::Format(format!("value parse error: {}", e)))?;
 
     // First, recursively pull all bond dependencies (children before parent)
-    let mut bonds = Vec::new();
-    collect_bonds(&value, schema_cell.value(), schemas, &mut bonds);
-    for (bond_cid, bond_schema_cid) in bonds {
-        Box::pin(pull_recursive(
-            source,
-            dest,
-            bond_cid,
-            bond_schema_cid,
-            schemas,
-            transferred,
-        ))
-        .await?;
-    }
+    pull_dependencies(
+        source,
+        dest,
+        &value,
+        schema_cell.value(),
+        schemas,
+        transferred,
+        scope,
+        visited,
+    )
+    .await?;
 
     // Now store this value (all dependencies are already in dest)
     dest.async_put(&value_cid, &value_bytes)
@@ -119,6 +140,230 @@ where
     transferred.push(value_cid);
 
     Ok(())
+}
+
+/// Traverses `value` according to `schema` and recursively pulls all bond
+/// dependencies before the current node is stored.
+///
+/// The traversal is schema-guided and scope-aware for reflexive references.
+/// Unknown/mismatched value shapes are skipped without failing the transfer.
+async fn pull_dependencies<S, D>(
+    source: &S,
+    dest: &D,
+    value: &Ipld,
+    schema: &Structure,
+    schemas: &mut Solvent,
+    transferred: &mut Vec<Cid>,
+    scope: &[Cid],
+    visited: &mut HashSet<TraversalState>,
+) -> Result<(), SyncError<S::Error, D::Error>>
+where
+    S: AsyncStore,
+    D: AsyncStore,
+{
+    match schema {
+        Structure::Bond(inner_schema) => {
+            if let Ipld::Link(target_cid) = value {
+                let Some((resolved_cid, next_scope)) =
+                    resolve_reflexive_edge(source, dest, *target_cid, scope, transferred).await?
+                else {
+                    return Ok(());
+                };
+
+                Box::pin(pull_recursive(
+                    source,
+                    dest,
+                    resolved_cid,
+                    inner_schema.cid(),
+                    schemas,
+                    transferred,
+                    &next_scope,
+                    visited,
+                ))
+                .await?;
+            }
+        }
+        Structure::Record(fields) => {
+            if let Ipld::Map(map) = value {
+                for (name, field_schema_bond) in fields {
+                    if let Some(fv) = map.get(name) {
+                        if let Some(field_schema) = field_schema_bond.value() {
+                            Box::pin(pull_dependencies(
+                                source,
+                                dest,
+                                fv,
+                                field_schema,
+                                schemas,
+                                transferred,
+                                scope,
+                                visited,
+                            ))
+                            .await?;
+                        }
+                    }
+                }
+            }
+        }
+        Structure::Sequence(inner) => {
+            if let Ipld::List(arr) = value {
+                if let Some(inner_schema) = inner.value() {
+                    for elem in arr {
+                        Box::pin(pull_dependencies(
+                            source,
+                            dest,
+                            elem,
+                            inner_schema,
+                            schemas,
+                            transferred,
+                            scope,
+                            visited,
+                        ))
+                        .await?;
+                    }
+                }
+            }
+        }
+        Structure::Tuple(elems) => {
+            if let Ipld::List(arr) = value {
+                for (elem_schema_bond, elem_val) in elems.iter().zip(arr.iter()) {
+                    if let Some(elem_schema) = elem_schema_bond.value() {
+                        Box::pin(pull_dependencies(
+                            source,
+                            dest,
+                            elem_val,
+                            elem_schema,
+                            schemas,
+                            transferred,
+                            scope,
+                            visited,
+                        ))
+                        .await?;
+                    }
+                }
+            }
+        }
+        Structure::Tagged(variants) => {
+            if let Ipld::Map(map) = value {
+                if map.len() == 1 {
+                    if let Some((name, val)) = map.iter().next() {
+                        if let Some(variant_schema_bond) = variants.get(name) {
+                            if let Some(variant_schema) = variant_schema_bond.value() {
+                                Box::pin(pull_dependencies(
+                                    source,
+                                    dest,
+                                    val,
+                                    variant_schema,
+                                    schemas,
+                                    transferred,
+                                    scope,
+                                    visited,
+                                ))
+                                .await?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Structure::Map { value: v, .. } => {
+            if let Ipld::Map(map) = value {
+                if let Some(value_schema) = v.value() {
+                    for mv in map.values() {
+                        Box::pin(pull_dependencies(
+                            source,
+                            dest,
+                            mv,
+                            value_schema,
+                            schemas,
+                            transferred,
+                            scope,
+                            visited,
+                        ))
+                        .await?;
+                    }
+                }
+            }
+        }
+        Structure::OrderedMap { key: k, value: v } => {
+            if let (Some(key_schema), Some(value_schema)) = (k.value(), v.value()) {
+                if let Ipld::List(entries) = value {
+                    for entry in entries {
+                        if let Ipld::List(pair) = entry {
+                            if pair.len() == 2 {
+                                Box::pin(pull_dependencies(
+                                    source,
+                                    dest,
+                                    &pair[0],
+                                    key_schema,
+                                    schemas,
+                                    transferred,
+                                    scope,
+                                    visited,
+                                ))
+                                .await?;
+                                Box::pin(pull_dependencies(
+                                    source,
+                                    dest,
+                                    &pair[1],
+                                    value_schema,
+                                    schemas,
+                                    transferred,
+                                    scope,
+                                    visited,
+                                ))
+                                .await?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+/// Resolves a bond edge that may be reflexive and returns the concrete target
+/// CID with the next traversal scope.
+///
+/// Non-reflexive CIDs are returned unchanged. For non-identity reflexive CIDs,
+/// the ligation payload is also transferred to `dest` if missing.
+async fn resolve_reflexive_edge<S, D>(
+    source: &S,
+    dest: &D,
+    cid: Cid,
+    scope: &[Cid],
+    transferred: &mut Vec<Cid>,
+) -> Result<Option<(Cid, Vec<Cid>)>, SyncError<S::Error, D::Error>>
+where
+    S: AsyncStore,
+    D: AsyncStore,
+{
+    if !is_reflexive_cid(&cid) {
+        return Ok(Some((cid, scope.to_vec())));
+    }
+
+    let ligation = if cid.hash().code() == crate::MULTIHASH_IDENTITY {
+        parse_ligation_bytes(cid.hash().digest())
+    } else {
+        let bytes = source
+            .async_get(&cid)
+            .await
+            .map_err(SyncError::Source)?
+            .ok_or(SyncError::NotFound(cid))?;
+
+        if !dest.async_has(&cid).await.map_err(SyncError::Dest)? {
+            dest.async_put(&cid, &bytes)
+                .await
+                .map_err(SyncError::Dest)?;
+            transferred.push(cid);
+        }
+
+        parse_ligation_bytes(&bytes)
+    };
+
+    Ok(resolve_ligation(ligation, scope))
 }
 
 /// Ensure a schema is available at dest, fetching from source if needed.
@@ -237,7 +482,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Bond, MemoryStore, Oxide, Solvent, Store};
+    use crate::{Bond, Ligation, MemoryStore, Oxide, Solvent, Store, ligase_cid, slot_cid};
+    use ipld_core::ipld::Ipld;
     use std::sync::Arc;
 
     // Complex test structures using derive macro with crate path override
@@ -264,6 +510,19 @@ mod tests {
         title: String,
         year: u32,
         chapters: Vec<Bond<Chapter>>,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Oxide)]
+    #[oxide(crate = crate)]
+    struct Ring {
+        name: String,
+        next: Bond<Ring>,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Oxide)]
+    #[oxide(crate = crate)]
+    struct Root {
+        head: Bond<Ring>,
     }
 
     #[tokio::test]
@@ -483,5 +742,102 @@ mod tests {
         assert!(!transferred.is_empty());
         assert!(dest.has(&chapter_cid).unwrap());
         assert!(dest.has(&author_cell.cid()).unwrap());
+    }
+
+    #[tokio::test]
+    async fn pull_reflexive_ligase_with_slots() {
+        let source = MemoryStore::new();
+        let dest = MemoryStore::new();
+        let mut solvent = Solvent::new();
+
+        let ring_a = Ring {
+            name: "A".into(),
+            next: Bond::from_cid(slot_cid(1)),
+        };
+        let ring_b = Ring {
+            name: "B".into(),
+            next: Bond::from_cid(slot_cid(0)),
+        };
+        let ring_a_cell = solvent.add(ring_a.clone());
+        let ring_b_cell = solvent.add(ring_b.clone());
+
+        source.put(&ring_a_cell.cid(), &ring_a.to_bytes()).unwrap();
+        source.put(&ring_b_cell.cid(), &ring_b.to_bytes()).unwrap();
+
+        let ligase_args = vec![ring_a_cell.cid(), ring_b_cell.cid()];
+        let ligase_ref = ligase_cid(ligase_args.clone());
+        source
+            .put(&ligase_ref, &Ligation::Ligase(ligase_args).to_bytes())
+            .unwrap();
+
+        let root = Root {
+            head: Bond::from_cid(ligase_ref),
+        };
+        let root_cell = solvent.add(root);
+        let (root_cid, root_schema_cid) = solvent.persist_cell(&root_cell, &source).unwrap();
+
+        let transferred = pull(&source, &dest, root_cid, root_schema_cid)
+            .await
+            .unwrap();
+
+        assert!(transferred.contains(&root_cid));
+        assert!(transferred.contains(&ligase_ref));
+        assert!(transferred.contains(&ring_a_cell.cid()));
+        assert!(transferred.contains(&ring_b_cell.cid()));
+        assert!(!transferred.contains(&slot_cid(0)));
+        assert!(!transferred.contains(&slot_cid(1)));
+
+        assert!(dest.has(&root_cid).unwrap());
+        assert!(dest.has(&ligase_ref).unwrap());
+        assert!(dest.has(&ring_a_cell.cid()).unwrap());
+        assert!(dest.has(&ring_b_cell.cid()).unwrap());
+    }
+
+    #[tokio::test]
+    async fn pull_ordered_map_list_pairs_traverses_key_and_value() {
+        let source = MemoryStore::new();
+        let dest = MemoryStore::new();
+        let mut solvent = Solvent::new();
+
+        let key_author = Author {
+            name: "Key Author".into(),
+            bio: "used in ordered-map key".into(),
+        };
+        let value_author = Author {
+            name: "Value Author".into(),
+            bio: "used in ordered-map value".into(),
+        };
+        let key_author_cell = solvent.add(key_author);
+        let value_author_cell = solvent.add(value_author);
+        solvent.persist_cell(&key_author_cell, &source).unwrap();
+        solvent.persist_cell(&value_author_cell, &source).unwrap();
+
+        let ordered_schema = Structure::OrderedMap {
+            key: Bond::new(Structure::bond(Author::schema())),
+            value: Bond::new(Structure::bond(Author::schema())),
+        };
+        let mut schema_solvent = Solvent::new();
+        let schema_cell = schema_solvent.add(ordered_schema);
+        let (root_schema_cid, _structure_schema_cid) =
+            schema_solvent.persist_cell(&schema_cell, &source).unwrap();
+
+        let entry = Ipld::List(vec![
+            Ipld::Link(key_author_cell.cid()),
+            Ipld::Link(value_author_cell.cid()),
+        ]);
+        let root_ipld = Ipld::List(vec![entry]);
+        let root_bytes = serde_ipld_dagcbor::to_vec(&root_ipld).unwrap();
+        let root_cid = crate::compute_cid(&root_bytes);
+        source.put(&root_cid, &root_bytes).unwrap();
+
+        let transferred = pull(&source, &dest, root_cid, root_schema_cid)
+            .await
+            .unwrap();
+
+        assert!(transferred.contains(&root_cid));
+        assert!(transferred.contains(&key_author_cell.cid()));
+        assert!(transferred.contains(&value_author_cell.cid()));
+        assert!(dest.has(&key_author_cell.cid()).unwrap());
+        assert!(dest.has(&value_author_cell.cid()).unwrap());
     }
 }

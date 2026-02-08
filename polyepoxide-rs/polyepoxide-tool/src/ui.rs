@@ -1,5 +1,6 @@
 //! TUI rendering with ratatui.
 
+use cid::Cid;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -47,15 +48,33 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|id| app.tree.get_node(id));
 
     if let Some(node) = selected_node {
-        let info = format!(
+        let mut info = format!(
             "Type: {}{}",
             node.type_hint,
             node.cid
                 .map(|c| format!("  CID: {}", c))
                 .unwrap_or_default()
         );
+        if !node.context.is_empty() {
+            let context = node
+                .context
+                .iter()
+                .map(short_cid)
+                .collect::<Vec<_>>()
+                .join(", ");
+            info.push_str(&format!("  Context: [{}]", context));
+        }
         let para = Paragraph::new(info).style(Style::default().fg(Color::Cyan));
         frame.render_widget(para, inner);
+    }
+}
+
+fn short_cid(cid: &Cid) -> String {
+    let s = cid.to_string();
+    if s.len() > 12 {
+        format!("{}...", &s[..12])
+    } else {
+        s
     }
 }
 

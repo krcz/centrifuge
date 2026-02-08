@@ -93,6 +93,18 @@ impl Oxide for String {
     }
 }
 
+impl Oxide for Cid {
+    fn schema() -> Structure {
+        Structure::Cid
+    }
+
+    fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
+
+    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+        *self
+    }
+}
+
 /// A wrapper for byte sequences to distinguish from Vec<T>.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ByteString(pub Vec<u8>);

@@ -2,6 +2,7 @@ use cid::Cid;
 use std::future::Future;
 
 use crate::Store;
+use crate::reflexive::is_identity_cid;
 
 /// Async CID-keyed store for oxide bytes.
 ///
@@ -12,16 +13,67 @@ use crate::Store;
 pub trait AsyncStore: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
-    fn async_get(
+    /// Retrieves bytes from the backend implementation.
+    fn async_get_impl(
         &self,
         cid: &Cid,
     ) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
-    fn async_put(
+    /// Stores bytes in the backend implementation.
+    fn async_put_impl(
         &self,
         cid: &Cid,
         value: &[u8],
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-    fn async_has(&self, cid: &Cid) -> impl Future<Output = Result<bool, Self::Error>> + Send;
+    /// Checks presence in the backend implementation.
+    fn async_has_impl(&self, cid: &Cid) -> impl Future<Output = Result<bool, Self::Error>> + Send;
+
+    /// Retrieves bytes by CID.
+    ///
+    /// Identity-multihash CIDs are materialized from digest bytes and never
+    /// delegated to the backend implementation.
+    fn async_get(
+        &self,
+        cid: &Cid,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send {
+        let cid = *cid;
+        async move {
+            if is_identity_cid(&cid) {
+                return Ok(Some(cid.hash().digest().to_vec()));
+            }
+            self.async_get_impl(&cid).await
+        }
+    }
+
+    /// Stores bytes by CID.
+    ///
+    /// Identity-multihash CIDs are treated as virtual and are not persisted.
+    fn async_put(
+        &self,
+        cid: &Cid,
+        value: &[u8],
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        let cid = *cid;
+        let value = value.to_vec();
+        async move {
+            if is_identity_cid(&cid) {
+                return Ok(());
+            }
+            self.async_put_impl(&cid, &value).await
+        }
+    }
+
+    /// Checks whether a CID exists.
+    ///
+    /// Identity-multihash CIDs are always considered present.
+    fn async_has(&self, cid: &Cid) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        let cid = *cid;
+        async move {
+            if is_identity_cid(&cid) {
+                return Ok(true);
+            }
+            self.async_has_impl(&cid).await
+        }
+    }
 
     /// Batch get - default impl calls async_get() in sequence.
     fn async_get_many(
@@ -72,16 +124,16 @@ pub trait AsyncStore: Send + Sync {
 impl<S: Store + Send + Sync> AsyncStore for S {
     type Error = S::Error;
 
-    async fn async_get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.get(cid)
+    async fn async_get_impl(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.get_impl(cid)
     }
 
-    async fn async_put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
-        self.put(cid, value)
+    async fn async_put_impl(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+        self.put_impl(cid, value)
     }
 
-    async fn async_has(&self, cid: &Cid) -> Result<bool, Self::Error> {
-        self.has(cid)
+    async fn async_has_impl(&self, cid: &Cid) -> Result<bool, Self::Error> {
+        self.has_impl(cid)
     }
 }
 
@@ -90,6 +142,7 @@ mod tests {
     use super::*;
     use crate::MemoryStore;
     use crate::oxide::compute_cid;
+    use crate::reflexive::make_identity_cid;
 
     #[tokio::test]
     async fn store_as_async_store_basic() {
@@ -124,5 +177,15 @@ mod tests {
 
         let has_results = store.async_has_many(&cids).await.unwrap();
         assert_eq!(has_results, vec![true, true, true]);
+    }
+
+    #[tokio::test]
+    async fn async_identity_short_circuit() {
+        let store = MemoryStore::new();
+        let cid = make_identity_cid(0x71, b"abc").unwrap();
+
+        assert_eq!(store.async_get(&cid).await.unwrap(), Some(b"abc".to_vec()));
+        assert!(store.async_has(&cid).await.unwrap());
+        store.async_put(&cid, b"ignored").await.unwrap();
     }
 }
