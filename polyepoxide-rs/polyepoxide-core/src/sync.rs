@@ -10,6 +10,7 @@ use ipld_core::ipld::Ipld;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::async_store::identity_overlay_async;
 use crate::reflexive::parse_ligation_bytes;
 use crate::{AsyncStore, Cell, Solvent, Structure, is_reflexive_cid, resolve_ligation};
 
@@ -58,13 +59,15 @@ where
     S: AsyncStore,
     D: AsyncStore,
 {
+    let source = identity_overlay_async(source);
+    let dest = identity_overlay_async(dest);
     let mut transferred = Vec::new();
     let mut schemas = Solvent::new();
     let mut visited = HashSet::new();
 
     pull_recursive(
-        source,
-        dest,
+        &source,
+        &dest,
         value_cid,
         schema_cid,
         &mut schemas,

@@ -79,7 +79,7 @@ impl RemoteStore {
 impl AsyncStore for RemoteStore {
     type Error = RemoteStoreError;
 
-    async fn async_get_impl(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+    async fn async_get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         let results = self.async_get_many(&[*cid]).await?;
         Ok(results.into_iter().next().flatten())
     }
@@ -121,7 +121,7 @@ impl AsyncStore for RemoteStore {
         }
     }
 
-    async fn async_put_impl(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+    async fn async_put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
         self.async_put_many(&[(cid, value)]).await
     }
 
@@ -152,7 +152,7 @@ impl AsyncStore for RemoteStore {
         }
     }
 
-    async fn async_has_impl(&self, cid: &Cid) -> Result<bool, Self::Error> {
+    async fn async_has(&self, cid: &Cid) -> Result<bool, Self::Error> {
         let results = self.async_has_many(&[*cid]).await?;
         Ok(results.into_iter().next().unwrap_or(false))
     }

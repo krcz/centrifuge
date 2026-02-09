@@ -13,67 +13,21 @@ use crate::reflexive::is_identity_cid;
 pub trait AsyncStore: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
-    /// Retrieves bytes from the backend implementation.
-    fn async_get_impl(
-        &self,
-        cid: &Cid,
-    ) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
-    /// Stores bytes in the backend implementation.
-    fn async_put_impl(
-        &self,
-        cid: &Cid,
-        value: &[u8],
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-    /// Checks presence in the backend implementation.
-    fn async_has_impl(&self, cid: &Cid) -> impl Future<Output = Result<bool, Self::Error>> + Send;
-
     /// Retrieves bytes by CID.
-    ///
-    /// Identity-multihash CIDs are materialized from digest bytes and never
-    /// delegated to the backend implementation.
     fn async_get(
         &self,
         cid: &Cid,
-    ) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send {
-        let cid = *cid;
-        async move {
-            if is_identity_cid(&cid) {
-                return Ok(Some(cid.hash().digest().to_vec()));
-            }
-            self.async_get_impl(&cid).await
-        }
-    }
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
 
     /// Stores bytes by CID.
-    ///
-    /// Identity-multihash CIDs are treated as virtual and are not persisted.
     fn async_put(
         &self,
         cid: &Cid,
         value: &[u8],
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        let cid = *cid;
-        let value = value.to_vec();
-        async move {
-            if is_identity_cid(&cid) {
-                return Ok(());
-            }
-            self.async_put_impl(&cid, &value).await
-        }
-    }
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Checks whether a CID exists.
-    ///
-    /// Identity-multihash CIDs are always considered present.
-    fn async_has(&self, cid: &Cid) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        let cid = *cid;
-        async move {
-            if is_identity_cid(&cid) {
-                return Ok(true);
-            }
-            self.async_has_impl(&cid).await
-        }
-    }
+    fn async_has(&self, cid: &Cid) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 
     /// Batch get - default impl calls async_get() in sequence.
     fn async_get_many(
@@ -120,20 +74,63 @@ pub trait AsyncStore: Send + Sync {
     }
 }
 
+/// Wraps an async store with identity-multihash virtual CID handling.
+pub struct IdentityAsyncStoreOverlay<'a, S: AsyncStore + ?Sized> {
+    inner: &'a S,
+}
+
+impl<'a, S: AsyncStore + ?Sized> IdentityAsyncStoreOverlay<'a, S> {
+    pub fn new(inner: &'a S) -> Self {
+        Self { inner }
+    }
+}
+
+pub fn identity_overlay_async<S: AsyncStore + ?Sized>(
+    inner: &S,
+) -> IdentityAsyncStoreOverlay<'_, S> {
+    IdentityAsyncStoreOverlay::new(inner)
+}
+
+impl<S: AsyncStore + ?Sized> AsyncStore for IdentityAsyncStoreOverlay<'_, S> {
+    type Error = S::Error;
+
+    async fn async_get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+        if is_identity_cid(cid) {
+            return Ok(Some(cid.hash().digest().to_vec()));
+        }
+        self.inner.async_get(cid).await
+    }
+
+    async fn async_put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+        if is_identity_cid(cid) {
+            let _ = value;
+            return Ok(());
+        }
+        self.inner.async_put(cid, value).await
+    }
+
+    async fn async_has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+        if is_identity_cid(cid) {
+            return Ok(true);
+        }
+        self.inner.async_has(cid).await
+    }
+}
+
 /// Blanket impl: any sync `Store` is also an `AsyncStore`.
 impl<S: Store + Send + Sync> AsyncStore for S {
     type Error = S::Error;
 
-    async fn async_get_impl(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.get_impl(cid)
+    async fn async_get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.get(cid)
     }
 
-    async fn async_put_impl(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
-        self.put_impl(cid, value)
+    async fn async_put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+        self.put(cid, value)
     }
 
-    async fn async_has_impl(&self, cid: &Cid) -> Result<bool, Self::Error> {
-        self.has_impl(cid)
+    async fn async_has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+        self.has(cid)
     }
 }
 
@@ -183,9 +180,13 @@ mod tests {
     async fn async_identity_short_circuit() {
         let store = MemoryStore::new();
         let cid = make_identity_cid(0x71, b"abc").unwrap();
+        let overlay = identity_overlay_async(&store);
 
-        assert_eq!(store.async_get(&cid).await.unwrap(), Some(b"abc".to_vec()));
-        assert!(store.async_has(&cid).await.unwrap());
-        store.async_put(&cid, b"ignored").await.unwrap();
+        assert_eq!(
+            overlay.async_get(&cid).await.unwrap(),
+            Some(b"abc".to_vec())
+        );
+        assert!(overlay.async_has(&cid).await.unwrap());
+        overlay.async_put(&cid, b"ignored").await.unwrap();
     }
 }

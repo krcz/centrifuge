@@ -43,7 +43,7 @@ mod store;
 mod sync;
 pub mod traverse;
 
-pub use async_store::AsyncStore;
+pub use async_store::{AsyncStore, IdentityAsyncStoreOverlay, identity_overlay_async};
 pub use bond::Bond;
 pub use cell::Cell;
 pub use cid::Cid;
@@ -54,7 +54,7 @@ pub use reflexive::{
 };
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
-pub use store::{MemoryStore, Store};
+pub use store::{IdentityStoreOverlay, MemoryStore, Store, identity_overlay};
 pub use sync::{SyncError, pull, push};
 
 #[cfg(feature = "derive")]

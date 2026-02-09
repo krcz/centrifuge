@@ -9,7 +9,7 @@ use crate::cell::Cell;
 use crate::oxide::{BondMapper, Oxide};
 use crate::reflexive::is_identity_cid;
 use crate::schema::Structure;
-use crate::store::Store;
+use crate::store::{Store, identity_overlay};
 
 /// Error type for solvent operations.
 #[derive(Debug, thiserror::Error)]
@@ -144,6 +144,7 @@ impl Solvent {
         cell: &Cell<T>,
         store: &S,
     ) -> Result<(Cid, Cid), S::Error> {
+        let store = identity_overlay(store);
         let mut visited = HashSet::new();
         debug!("Persisting cell {:?}", cell.cid());
 
@@ -171,7 +172,7 @@ impl Solvent {
         }
 
         // Persist the value and all bond dependencies
-        self.persist_value(cell.value(), store, &mut visited)?;
+        self.persist_value(cell.value(), &store, &mut visited)?;
 
         Ok((cell.cid(), schema_cid))
     }
