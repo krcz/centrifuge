@@ -1,4 +1,4 @@
-use polyepoxide_core::{oxide, Bond};
+use polyepoxide_core::{Bond, oxide};
 
 use crate::content::MessageContent;
 use crate::metadata::MessageMetadata;

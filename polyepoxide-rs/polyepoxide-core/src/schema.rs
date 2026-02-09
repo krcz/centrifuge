@@ -26,7 +26,12 @@ impl IntType {
 
 impl Oxide for IntType {
     fn schema() -> Structure {
-        Structure::Enum(Self::variant_names().iter().map(|s| s.to_string()).collect())
+        Structure::Enum(
+            Self::variant_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        )
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -52,7 +57,12 @@ impl FloatType {
 
 impl Oxide for FloatType {
     fn schema() -> Structure {
-        Structure::Enum(Self::variant_names().iter().map(|s| s.to_string()).collect())
+        Structure::Enum(
+            Self::variant_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        )
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -198,7 +208,8 @@ impl Oxide for Structure {
         let self_ref = Structure::SelfRef(0);
 
         // Schema for Map/OrderedMap payload: Record { key: Structure, value: Structure }
-        let map_payload = Structure::record([("key", self_ref.clone()), ("value", self_ref.clone())]);
+        let map_payload =
+            Structure::record([("key", self_ref.clone()), ("value", self_ref.clone())]);
 
         Structure::tagged([
             // Primitives (unit payloads)
@@ -212,8 +223,14 @@ impl Oxide for Structure {
             // Compound types
             ("Sequence", self_ref.clone()),
             ("Tuple", Structure::sequence(self_ref.clone())),
-            ("Record", Structure::ordered_map(Structure::Unicode, self_ref.clone())),
-            ("Tagged", Structure::ordered_map(Structure::Unicode, self_ref.clone())),
+            (
+                "Record",
+                Structure::ordered_map(Structure::Unicode, self_ref.clone()),
+            ),
+            (
+                "Tagged",
+                Structure::ordered_map(Structure::Unicode, self_ref.clone()),
+            ),
             ("Enum", Structure::sequence(Structure::Unicode)),
             // Map types
             ("Map", map_payload.clone()),
@@ -316,25 +333,12 @@ impl PartialEq for Structure {
                         .all(|((k1, v1), (k2, v2))| k1 == k2 && v1.cid() == v2.cid())
             }
             (Structure::Enum(a), Structure::Enum(b)) => a == b,
+            (Structure::Map { key: k1, value: v1 }, Structure::Map { key: k2, value: v2 }) => {
+                k1.cid() == k2.cid() && v1.cid() == v2.cid()
+            }
             (
-                Structure::Map {
-                    key: k1,
-                    value: v1,
-                },
-                Structure::Map {
-                    key: k2,
-                    value: v2,
-                },
-            ) => k1.cid() == k2.cid() && v1.cid() == v2.cid(),
-            (
-                Structure::OrderedMap {
-                    key: k1,
-                    value: v1,
-                },
-                Structure::OrderedMap {
-                    key: k2,
-                    value: v2,
-                },
+                Structure::OrderedMap { key: k1, value: v1 },
+                Structure::OrderedMap { key: k2, value: v2 },
             ) => k1.cid() == k2.cid() && v1.cid() == v2.cid(),
             (Structure::Bond(a), Structure::Bond(b)) => a.cid() == b.cid(),
             (Structure::SelfRef(a), Structure::SelfRef(b)) => a == b,

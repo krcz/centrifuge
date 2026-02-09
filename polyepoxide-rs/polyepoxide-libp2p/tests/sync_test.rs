@@ -8,15 +8,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
+use libp2p::Transport;
 use libp2p::core::transport::MemoryTransport;
 use libp2p::identity::Keypair;
 use libp2p::request_response::{self, OutboundRequestId};
 use libp2p::swarm::SwarmEvent;
-use libp2p::Transport;
 use libp2p::{Multiaddr, PeerId, Swarm};
-use polyepoxide_core::{pull, Bond, MemoryStore, Oxide, Solvent, Store};
+use polyepoxide_core::{Bond, MemoryStore, Oxide, Solvent, Store, pull};
 use polyepoxide_libp2p::{
-    handle_request, Command, PolyepoxideBehaviour, RemoteStore, RemoteStoreError, Response,
+    Command, PolyepoxideBehaviour, RemoteStore, RemoteStoreError, Response, handle_request,
 };
 use tokio::sync::{mpsc, oneshot};
 

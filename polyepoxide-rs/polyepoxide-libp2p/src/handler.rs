@@ -50,7 +50,7 @@ pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Respo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polyepoxide_core::{compute_cid, MemoryStore, Store};
+    use polyepoxide_core::{MemoryStore, Store, compute_cid};
 
     #[tokio::test]
     async fn handle_get_found() {

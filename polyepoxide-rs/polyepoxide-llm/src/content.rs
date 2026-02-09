@@ -1,4 +1,4 @@
-use polyepoxide_core::{oxide, ByteString};
+use polyepoxide_core::{ByteString, oxide};
 
 use crate::tool::ToolCall;
 

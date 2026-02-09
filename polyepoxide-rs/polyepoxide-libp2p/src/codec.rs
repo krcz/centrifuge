@@ -4,10 +4,10 @@ use std::io;
 
 use async_trait::async_trait;
 use futures::prelude::*;
-use libp2p::request_response;
 use libp2p::StreamProtocol;
+use libp2p::request_response;
 
-use crate::protocol::{Request, Response, PROTOCOL_NAME};
+use crate::protocol::{PROTOCOL_NAME, Request, Response};
 
 /// Maximum message size (16 MB).
 const MAX_MESSAGE_SIZE: u64 = 16 * 1024 * 1024;
@@ -92,8 +92,7 @@ where
     io.read_exact(&mut buf).await?;
 
     // Deserialize using DAG-CBOR
-    serde_ipld_dagcbor::from_slice(&buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    serde_ipld_dagcbor::from_slice(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 /// Write a length-prefixed DAG-CBOR message.

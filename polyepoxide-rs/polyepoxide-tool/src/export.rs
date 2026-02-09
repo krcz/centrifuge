@@ -87,15 +87,23 @@ fn ipld_to_json(
             if depth == 0 {
                 // Just output $ref
                 let mut obj = Map::new();
-                obj.insert("$ref".to_string(), JsonValue::String(target_cid.to_string()));
+                obj.insert(
+                    "$ref".to_string(),
+                    JsonValue::String(target_cid.to_string()),
+                );
                 Ok(JsonValue::Object(obj))
             } else {
                 // Expand the bond
                 if let Ok(Some(target_bytes)) = store.get(target_cid) {
                     if let Ok(target_ipld) = parse_to_ipld(&target_bytes) {
                         if let Some(inner_schema) = inner.value() {
-                            let mut result =
-                                ipld_to_json(store, schemas, &target_ipld, inner_schema, depth - 1)?;
+                            let mut result = ipld_to_json(
+                                store,
+                                schemas,
+                                &target_ipld,
+                                inner_schema,
+                                depth - 1,
+                            )?;
                             // Add $ref as metadata for expanded objects
                             if let JsonValue::Object(ref mut obj) = result {
                                 obj.insert(
@@ -109,7 +117,10 @@ fn ipld_to_json(
                 }
                 // Fallback to just $ref
                 let mut obj = Map::new();
-                obj.insert("$ref".to_string(), JsonValue::String(target_cid.to_string()));
+                obj.insert(
+                    "$ref".to_string(),
+                    JsonValue::String(target_cid.to_string()),
+                );
                 Ok(JsonValue::Object(obj))
             }
         }

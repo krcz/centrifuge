@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{DeriveInput, parse_macro_input};
 
 mod schema;
 
@@ -211,10 +211,12 @@ fn build_where_clause(
         quote! { #p: #crate_path::Oxide }
     });
 
-    let existing_predicates = existing.map(|w| {
-        let predicates = &w.predicates;
-        quote! { #predicates, }
-    }).unwrap_or_default();
+    let existing_predicates = existing
+        .map(|w| {
+            let predicates = &w.predicates;
+            quote! { #predicates, }
+        })
+        .unwrap_or_default();
 
     quote! {
         where
@@ -224,15 +226,24 @@ fn build_where_clause(
     }
 }
 
-fn generate_visit_bonds(input: &DeriveInput, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_visit_bonds(
+    input: &DeriveInput,
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     match &input.data {
         syn::Data::Struct(data) => generate_visit_bonds_struct(data, crate_path),
         syn::Data::Enum(data) => generate_visit_bonds_enum(data, crate_path),
-        syn::Data::Union(_) => Err(syn::Error::new_spanned(input, "Oxide cannot be derived for unions")),
+        syn::Data::Union(_) => Err(syn::Error::new_spanned(
+            input,
+            "Oxide cannot be derived for unions",
+        )),
     }
 }
 
-fn generate_visit_bonds_struct(data: &syn::DataStruct, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_visit_bonds_struct(
+    data: &syn::DataStruct,
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     let visits = generate_field_visits(&data.fields, quote! { self })?;
 
     Ok(quote! {
@@ -242,52 +253,70 @@ fn generate_visit_bonds_struct(data: &syn::DataStruct, crate_path: &proc_macro2:
     })
 }
 
-fn generate_visit_bonds_enum(data: &syn::DataEnum, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
-    let arms: Vec<_> = data.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
+fn generate_visit_bonds_enum(
+    data: &syn::DataEnum,
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let arms: Vec<_> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_ident = &variant.ident;
 
-        match &variant.fields {
-            syn::Fields::Unit => {
-                quote! { Self::#variant_ident => {} }
-            }
-            syn::Fields::Named(fields) => {
-                let field_names: Vec<_> = fields.named.iter()
-                    .filter_map(|f| f.ident.as_ref())
-                    .collect();
-                let visits: Vec<_> = fields.named.iter()
-                    .filter_map(|f| {
-                        let attrs = parse_field_attrs(&f.attrs);
-                        if attrs.skip { return None; }
-                        let ident = f.ident.as_ref()?;
-                        Some(quote! { #ident.visit_bonds(visitor); })
-                    })
-                    .collect();
-                quote! {
-                    Self::#variant_ident { #(#field_names),* } => {
-                        #(#visits)*
+            match &variant.fields {
+                syn::Fields::Unit => {
+                    quote! { Self::#variant_ident => {} }
+                }
+                syn::Fields::Named(fields) => {
+                    let field_names: Vec<_> = fields
+                        .named
+                        .iter()
+                        .filter_map(|f| f.ident.as_ref())
+                        .collect();
+                    let visits: Vec<_> = fields
+                        .named
+                        .iter()
+                        .filter_map(|f| {
+                            let attrs = parse_field_attrs(&f.attrs);
+                            if attrs.skip {
+                                return None;
+                            }
+                            let ident = f.ident.as_ref()?;
+                            Some(quote! { #ident.visit_bonds(visitor); })
+                        })
+                        .collect();
+                    quote! {
+                        Self::#variant_ident { #(#field_names),* } => {
+                            #(#visits)*
+                        }
+                    }
+                }
+                syn::Fields::Unnamed(fields) => {
+                    let bindings: Vec<_> = (0..fields.unnamed.len())
+                        .map(|i| quote::format_ident!("f{}", i))
+                        .collect();
+                    let visits: Vec<_> = fields
+                        .unnamed
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, f)| {
+                            let attrs = parse_field_attrs(&f.attrs);
+                            if attrs.skip {
+                                return None;
+                            }
+                            let binding = quote::format_ident!("f{}", i);
+                            Some(quote! { #binding.visit_bonds(visitor); })
+                        })
+                        .collect();
+                    quote! {
+                        Self::#variant_ident(#(#bindings),*) => {
+                            #(#visits)*
+                        }
                     }
                 }
             }
-            syn::Fields::Unnamed(fields) => {
-                let bindings: Vec<_> = (0..fields.unnamed.len())
-                    .map(|i| quote::format_ident!("f{}", i))
-                    .collect();
-                let visits: Vec<_> = fields.unnamed.iter().enumerate()
-                    .filter_map(|(i, f)| {
-                        let attrs = parse_field_attrs(&f.attrs);
-                        if attrs.skip { return None; }
-                        let binding = quote::format_ident!("f{}", i);
-                        Some(quote! { #binding.visit_bonds(visitor); })
-                    })
-                    .collect();
-                quote! {
-                    Self::#variant_ident(#(#bindings),*) => {
-                        #(#visits)*
-                    }
-                }
-            }
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok(quote! {
         fn visit_bonds(&self, visitor: &mut dyn #crate_path::BondVisitor) {
@@ -304,10 +333,14 @@ fn generate_field_visits(
 ) -> syn::Result<proc_macro2::TokenStream> {
     match fields {
         syn::Fields::Named(named) => {
-            let visits: Vec<_> = named.named.iter()
+            let visits: Vec<_> = named
+                .named
+                .iter()
                 .filter_map(|f| {
                     let attrs = parse_field_attrs(&f.attrs);
-                    if attrs.skip { return None; }
+                    if attrs.skip {
+                        return None;
+                    }
                     let ident = f.ident.as_ref()?;
                     Some(quote! { #prefix.#ident.visit_bonds(visitor); })
                 })
@@ -315,10 +348,15 @@ fn generate_field_visits(
             Ok(quote! { #(#visits)* })
         }
         syn::Fields::Unnamed(unnamed) => {
-            let visits: Vec<_> = unnamed.unnamed.iter().enumerate()
+            let visits: Vec<_> = unnamed
+                .unnamed
+                .iter()
+                .enumerate()
                 .filter_map(|(i, f)| {
                     let attrs = parse_field_attrs(&f.attrs);
-                    if attrs.skip { return None; }
+                    if attrs.skip {
+                        return None;
+                    }
                     let idx = syn::Index::from(i);
                     Some(quote! { #prefix.#idx.visit_bonds(visitor); })
                 })
@@ -329,11 +367,17 @@ fn generate_field_visits(
     }
 }
 
-fn generate_map_bonds(input: &DeriveInput, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_map_bonds(
+    input: &DeriveInput,
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     match &input.data {
         syn::Data::Struct(data) => generate_map_bonds_struct(&input.ident, data, crate_path),
         syn::Data::Enum(data) => generate_map_bonds_enum(data, crate_path),
-        syn::Data::Union(_) => Err(syn::Error::new_spanned(input, "Oxide cannot be derived for unions")),
+        syn::Data::Union(_) => Err(syn::Error::new_spanned(
+            input,
+            "Oxide cannot be derived for unions",
+        )),
     }
 }
 
@@ -351,7 +395,10 @@ fn generate_map_bonds_struct(
     })
 }
 
-fn generate_map_bonds_enum(data: &syn::DataEnum, crate_path: &proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
+fn generate_map_bonds_enum(
+    data: &syn::DataEnum,
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     let arms: Vec<_> = data.variants.iter().map(|variant| {
         let variant_ident = &variant.ident;
 
@@ -416,7 +463,9 @@ fn generate_field_mappings(
 ) -> syn::Result<proc_macro2::TokenStream> {
     match fields {
         syn::Fields::Named(named) => {
-            let mappings: Vec<_> = named.named.iter()
+            let mappings: Vec<_> = named
+                .named
+                .iter()
                 .filter_map(|f| {
                     let ident = f.ident.as_ref()?;
                     let attrs = parse_field_attrs(&f.attrs);
@@ -431,7 +480,10 @@ fn generate_field_mappings(
             Ok(quote! { #name { #(#mappings),* } })
         }
         syn::Fields::Unnamed(unnamed) => {
-            let mappings: Vec<_> = unnamed.unnamed.iter().enumerate()
+            let mappings: Vec<_> = unnamed
+                .unnamed
+                .iter()
+                .enumerate()
                 .map(|(i, f)| {
                     let idx = syn::Index::from(i);
                     let attrs = parse_field_attrs(&f.attrs);

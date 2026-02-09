@@ -151,7 +151,9 @@ where
 
     // Store in dest if missing
     if !dest_has {
-        dest.async_put(&cid, &bytes).await.map_err(SyncError::Dest)?;
+        dest.async_put(&cid, &bytes)
+            .await
+            .map_err(SyncError::Dest)?;
         transferred.push(cid);
     }
 
@@ -277,9 +279,7 @@ mod tests {
         let cell = solvent.add(author);
         let (value_cid, schema_cid) = solvent.persist_cell(&cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, value_cid, schema_cid)
-            .await
-            .unwrap();
+        let transferred = pull(&source, &dest, value_cid, schema_cid).await.unwrap();
 
         assert!(!transferred.is_empty());
         assert!(dest.has(&value_cid).unwrap());
@@ -309,9 +309,7 @@ mod tests {
         let chapter_cell = solvent.add(chapter);
         let (chapter_cid, schema_cid) = solvent.persist_cell(&chapter_cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, chapter_cid, schema_cid)
-            .await
-            .unwrap();
+        let transferred = pull(&source, &dest, chapter_cid, schema_cid).await.unwrap();
 
         // Should have transferred chapter and author
         assert!(transferred.contains(&chapter_cid));
@@ -366,9 +364,7 @@ mod tests {
         let book_cell = solvent.add(book);
         let (book_cid, schema_cid) = solvent.persist_cell(&book_cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, book_cid, schema_cid)
-            .await
-            .unwrap();
+        let transferred = pull(&source, &dest, book_cid, schema_cid).await.unwrap();
 
         // Should have transferred everything: book, 2 chapters, 2 authors
         assert!(transferred.contains(&book_cid));
@@ -424,9 +420,7 @@ mod tests {
         let book_cell = solvent.add(book);
         let (book_cid, schema_cid) = solvent.persist_cell(&book_cell, &source).unwrap();
 
-        let transferred = pull(&source, &dest, book_cid, schema_cid)
-            .await
-            .unwrap();
+        let transferred = pull(&source, &dest, book_cid, schema_cid).await.unwrap();
 
         // Shared author should only be transferred once
         let author_count = transferred
@@ -458,9 +452,7 @@ mod tests {
         // Pre-populate dest with the same data
         solvent.persist_cell(&cell, &dest).unwrap();
 
-        let transferred = pull(&source, &dest, value_cid, schema_cid)
-            .await
-            .unwrap();
+        let transferred = pull(&source, &dest, value_cid, schema_cid).await.unwrap();
 
         // Nothing should be transferred since dest already has everything
         assert!(transferred.is_empty());
@@ -486,9 +478,7 @@ mod tests {
         let chapter_cell = solvent.add(chapter);
         let (chapter_cid, schema_cid) = solvent.persist_cell(&chapter_cell, &source).unwrap();
 
-        let transferred = push(&source, &dest, chapter_cid, schema_cid)
-            .await
-            .unwrap();
+        let transferred = push(&source, &dest, chapter_cid, schema_cid).await.unwrap();
 
         assert!(!transferred.is_empty());
         assert!(dest.has(&chapter_cid).unwrap());

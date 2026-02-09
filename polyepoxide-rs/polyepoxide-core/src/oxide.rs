@@ -1,6 +1,6 @@
 use cid::Cid;
 use multihash_codetable::{Code, MultihashDigest};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt::Debug;
 
 use crate::bond::Bond;
@@ -60,7 +60,9 @@ pub trait Oxide: Debug + Serialize + DeserializeOwned + Clone + Send + Sync + 's
     }
 
     /// Deserializes an oxide from DAG-CBOR bytes.
-    fn from_bytes(data: &[u8]) -> Result<Self, serde_ipld_dagcbor::DecodeError<std::convert::Infallible>> {
+    fn from_bytes(
+        data: &[u8],
+    ) -> Result<Self, serde_ipld_dagcbor::DecodeError<std::convert::Infallible>> {
         serde_ipld_dagcbor::from_slice(data)
     }
 }

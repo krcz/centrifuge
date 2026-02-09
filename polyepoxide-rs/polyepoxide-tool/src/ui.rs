@@ -60,9 +60,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Structure ");
+    let block = Block::default().borders(Borders::ALL).title(" Structure ");
 
     let inner = block.inner(area);
     frame.render_widget(block, area);

@@ -46,11 +46,11 @@ pub use async_store::AsyncStore;
 pub use bond::Bond;
 pub use cell::Cell;
 pub use cid::Cid;
-pub use oxide::{compute_cid, BondMapper, BondVisitor, ByteString, Oxide};
+pub use oxide::{BondMapper, BondVisitor, ByteString, Oxide, compute_cid};
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
 pub use store::{MemoryStore, Store};
-pub use sync::{pull, push, SyncError};
+pub use sync::{SyncError, pull, push};
 
 #[cfg(feature = "derive")]
-pub use polyepoxide_derive::{oxide, Oxide};
+pub use polyepoxide_derive::{Oxide, oxide};

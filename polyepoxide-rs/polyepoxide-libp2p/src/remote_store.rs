@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use cid::Cid;
-use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
+use libp2p::request_response::ResponseChannel;
 use polyepoxide_core::AsyncStore;
 use tokio::sync::{mpsc, oneshot};
 
@@ -109,7 +109,9 @@ impl AsyncStore for RemoteStore {
         let nodes_owned: Vec<(Cid, Vec<u8>)> =
             nodes.iter().map(|(k, v)| (**k, v.to_vec())).collect();
 
-        let response = self.send_request(Request::Put { nodes: nodes_owned }).await?;
+        let response = self
+            .send_request(Request::Put { nodes: nodes_owned })
+            .await?;
 
         match response {
             Response::Stored { cids: _ } => Ok(()),

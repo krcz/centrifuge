@@ -27,17 +27,17 @@ mod handler;
 mod protocol;
 mod remote_store;
 
-pub use codec::{protocol, PolyepoxideCodec};
+pub use codec::{PolyepoxideCodec, protocol};
 pub use handler::handle_request;
-pub use protocol::{Request, Response, PROTOCOL_NAME};
+pub use protocol::{PROTOCOL_NAME, Request, Response};
 pub use remote_store::{Command, RemoteStore, RemoteStoreError};
 
 use std::collections::HashMap;
 
 use futures::StreamExt;
+use libp2p::Swarm;
 use libp2p::request_response::{self, OutboundRequestId};
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
-use libp2p::Swarm;
 use polyepoxide_core::AsyncStore;
 use tokio::sync::{mpsc, oneshot};
 
@@ -79,8 +79,10 @@ pub async fn run_swarm<S, T>(
     S: AsyncStore,
     T: Send,
 {
-    let mut pending_requests: HashMap<OutboundRequestId, oneshot::Sender<Result<Response, RemoteStoreError>>> =
-        HashMap::new();
+    let mut pending_requests: HashMap<
+        OutboundRequestId,
+        oneshot::Sender<Result<Response, RemoteStoreError>>,
+    > = HashMap::new();
 
     loop {
         tokio::select! {

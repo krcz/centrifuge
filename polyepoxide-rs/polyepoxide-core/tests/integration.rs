@@ -1,6 +1,6 @@
 //! Integration tests demonstrating nested structures with bonds.
 
-use polyepoxide_core::{oxide, Bond, BondVisitor, Cid, Oxide, Solvent, Structure};
+use polyepoxide_core::{Bond, BondVisitor, Cid, Oxide, Solvent, Structure, oxide};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

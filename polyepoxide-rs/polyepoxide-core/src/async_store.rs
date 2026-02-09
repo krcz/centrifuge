@@ -12,8 +12,15 @@ use crate::Store;
 pub trait AsyncStore: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
-    fn async_get(&self, cid: &Cid) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
-    fn async_put(&self, cid: &Cid, value: &[u8]) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn async_get(
+        &self,
+        cid: &Cid,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
+    fn async_put(
+        &self,
+        cid: &Cid,
+        value: &[u8],
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
     fn async_has(&self, cid: &Cid) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 
     /// Batch get - default impl calls async_get() in sequence.
@@ -81,8 +88,8 @@ impl<S: Store + Send + Sync> AsyncStore for S {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::oxide::compute_cid;
     use crate::MemoryStore;
+    use crate::oxide::compute_cid;
 
     #[tokio::test]
     async fn store_as_async_store_basic() {
@@ -102,7 +109,11 @@ mod tests {
         let cids: Vec<Cid> = (0..3).map(|i| compute_cid(&[i])).collect();
         let values: Vec<&[u8]> = vec![b"a", b"b", b"c"];
 
-        let nodes: Vec<_> = cids.iter().zip(values.iter()).map(|(k, v)| (k, *v)).collect();
+        let nodes: Vec<_> = cids
+            .iter()
+            .zip(values.iter())
+            .map(|(k, v)| (k, *v))
+            .collect();
         store.async_put_many(&nodes).await.unwrap();
 
         let results = store.async_get_many(&cids).await.unwrap();

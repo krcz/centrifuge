@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Type};
 
-use crate::{parse_field_attrs, FieldAttrs};
+use crate::{FieldAttrs, parse_field_attrs};
 
 /// Generates the `schema()` method implementation.
 pub fn generate_schema(input: &DeriveInput, crate_path: &TokenStream) -> syn::Result<TokenStream> {
@@ -68,7 +68,11 @@ fn generate_schema_struct(
     })
 }
 
-fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum, crate_path: &TokenStream) -> syn::Result<TokenStream> {
+fn generate_schema_enum(
+    self_type: &syn::Ident,
+    data: &syn::DataEnum,
+    crate_path: &TokenStream,
+) -> syn::Result<TokenStream> {
     // Check if all variants are unit variants (C-style enum)
     let all_unit = data
         .variants
@@ -82,9 +86,7 @@ fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum, crate_path
             .iter()
             .map(|v| {
                 let attrs = parse_variant_attrs(&v.attrs);
-                let name = attrs
-                    .rename
-                    .unwrap_or_else(|| v.ident.to_string());
+                let name = attrs.rename.unwrap_or_else(|| v.ident.to_string());
                 quote! { #name.to_string() }
             })
             .collect();
@@ -96,9 +98,7 @@ fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum, crate_path
             .iter()
             .map(|v| {
                 let attrs = parse_variant_attrs(&v.attrs);
-                let name = attrs
-                    .rename
-                    .unwrap_or_else(|| v.ident.to_string());
+                let name = attrs.rename.unwrap_or_else(|| v.ident.to_string());
                 let payload = variant_payload_schema(&v.fields, self_type, crate_path);
                 quote! { (#name, #payload) }
             })
@@ -113,7 +113,11 @@ fn generate_schema_enum(self_type: &syn::Ident, data: &syn::DataEnum, crate_path
     })
 }
 
-fn variant_payload_schema(fields: &syn::Fields, self_type: &syn::Ident, crate_path: &TokenStream) -> TokenStream {
+fn variant_payload_schema(
+    fields: &syn::Fields,
+    self_type: &syn::Ident,
+    crate_path: &TokenStream,
+) -> TokenStream {
     match fields {
         syn::Fields::Unit => {
             quote! { #crate_path::Structure::Unit }
