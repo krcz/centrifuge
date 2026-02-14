@@ -54,12 +54,8 @@ pub struct NodeData {
     pub schema_cid: Cid,
     /// Human-readable type hint.
     pub type_hint: String,
-    /// IPLD value for this node (if loaded).
-    pub ipld: Option<Ipld>,
     /// Display string for the node.
     pub display: String,
-    /// Depth in tree (for indentation).
-    pub depth: usize,
     /// Child node IDs.
     pub children: Vec<NodeId>,
     /// Active reflexive context scope for this node.
@@ -202,7 +198,7 @@ impl TreeModel {
         let label = short_cid(&self.root_cid);
 
         let root_context = self.root_context.clone();
-        self.build_node(&node_id, &label, &ipld, schema, &root_context, 0)?;
+        self.build_node(&node_id, &label, &ipld, schema, &root_context)?;
         self.roots.push(node_id);
 
         Ok(())
@@ -215,13 +211,12 @@ impl TreeModel {
         ipld: &Ipld,
         schema: &Structure,
         context: &[Cid],
-        depth: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let type_hint = self.schema_to_type_hint(schema);
         let display = self.format_node_display(label, ipld, schema);
         let cid = self.extract_cid(ipld, schema, context);
 
-        let children = self.collect_children(node_id, ipld, schema, context, depth + 1)?;
+        let children = self.collect_children(node_id, ipld, schema, context)?;
 
         self.nodes.insert(
             node_id.clone(),
@@ -229,9 +224,7 @@ impl TreeModel {
                 cid,
                 schema_cid: self.root_schema_cid, // simplified
                 type_hint,
-                ipld: Some(ipld.clone()),
                 display,
-                depth,
                 children,
                 context: context.to_vec(),
             },
@@ -246,7 +239,6 @@ impl TreeModel {
         ipld: &Ipld,
         schema: &Structure,
         context: &[Cid],
-        depth: usize,
     ) -> Result<Vec<NodeId>, Box<dyn std::error::Error>> {
         let mut children = Vec::new();
 
@@ -257,7 +249,7 @@ impl TreeModel {
                         if let Some(fv) = map.get(name) {
                             if let Some(field_schema) = field_schema_bond.value() {
                                 let child_id = NodeId::child(parent_id.as_str(), name);
-                                self.build_node(&child_id, name, fv, field_schema, context, depth)?;
+                                self.build_node(&child_id, name, fv, field_schema, context)?;
                                 children.push(child_id);
                             }
                         }
@@ -270,7 +262,7 @@ impl TreeModel {
                         for (i, elem) in arr.iter().enumerate() {
                             let idx = format!("[{}]", i);
                             let child_id = NodeId::child(parent_id.as_str(), &idx);
-                            self.build_node(&child_id, &idx, elem, inner_schema, context, depth)?;
+                            self.build_node(&child_id, &idx, elem, inner_schema, context)?;
                             children.push(child_id);
                         }
                     }
@@ -284,14 +276,7 @@ impl TreeModel {
                         if let Some(elem_schema) = elem_schema_bond.value() {
                             let idx = format!("[{}]", i);
                             let child_id = NodeId::child(parent_id.as_str(), &idx);
-                            self.build_node(
-                                &child_id,
-                                &idx,
-                                elem_val,
-                                elem_schema,
-                                context,
-                                depth,
-                            )?;
+                            self.build_node(&child_id, &idx, elem_val, elem_schema, context)?;
                             children.push(child_id);
                         }
                     }
@@ -304,14 +289,7 @@ impl TreeModel {
                             if let Some(variant_schema_bond) = variants.get(name) {
                                 if let Some(variant_schema) = variant_schema_bond.value() {
                                     let child_id = NodeId::child(parent_id.as_str(), name);
-                                    self.build_node(
-                                        &child_id,
-                                        name,
-                                        val,
-                                        variant_schema,
-                                        context,
-                                        depth,
-                                    )?;
+                                    self.build_node(&child_id, name, val, variant_schema, context)?;
                                     children.push(child_id);
                                 }
                             }
@@ -324,7 +302,7 @@ impl TreeModel {
                     if let Some(vs) = v.value() {
                         for (mk, mv) in map {
                             let child_id = NodeId::child(parent_id.as_str(), mk);
-                            self.build_node(&child_id, mk, mv, vs, context, depth)?;
+                            self.build_node(&child_id, mk, mv, vs, context)?;
                             children.push(child_id);
                         }
                     }
@@ -338,16 +316,12 @@ impl TreeModel {
                                 if pair.len() == 2 {
                                     let key_label = format!("[{}].key", i);
                                     let key_id = NodeId::child(parent_id.as_str(), &key_label);
-                                    self.build_node(
-                                        &key_id, &key_label, &pair[0], ks, context, depth,
-                                    )?;
+                                    self.build_node(&key_id, &key_label, &pair[0], ks, context)?;
                                     children.push(key_id);
 
                                     let val_label = format!("[{}].value", i);
                                     let val_id = NodeId::child(parent_id.as_str(), &val_label);
-                                    self.build_node(
-                                        &val_id, &val_label, &pair[1], vs, context, depth,
-                                    )?;
+                                    self.build_node(&val_id, &val_label, &pair[1], vs, context)?;
                                     children.push(val_id);
                                 }
                             }
@@ -372,7 +346,6 @@ impl TreeModel {
                                         &target_ipld,
                                         inner_schema,
                                         &next_scope,
-                                        depth,
                                     )?;
                                     children.extend(nested);
                                 }
