@@ -67,6 +67,17 @@ impl<T: Oxide> Bond<T> {
     pub fn value(&self) -> Option<&T> {
         self.cell().map(|c| c.value())
     }
+
+    /// Converts this typed bond to its type-erased counterpart.
+    pub fn erased(&self) -> ErasedBond {
+        ErasedBond::from(self)
+    }
+}
+
+impl<T: Oxide> From<T> for Bond<T> {
+    fn from(value: T) -> Self {
+        Bond::new(value)
+    }
 }
 
 impl<T: Oxide> Clone for Bond<T> {
@@ -99,7 +110,7 @@ impl<'de, T: Oxide> Deserialize<'de> for Bond<T> {
 }
 
 impl<T: Oxide> Oxide for Bond<T> {
-    fn schema() -> Structure {
+    fn schema() -> Bond<Structure> {
         Structure::bond(T::schema())
     }
 
@@ -176,6 +187,19 @@ impl Clone for ErasedBond {
     }
 }
 
+impl<T: Oxide> From<&Bond<T>> for ErasedBond {
+    fn from(value: &Bond<T>) -> Self {
+        match value {
+            Bond::Unresolved(cid) => ErasedBond::Unresolved(*cid),
+            Bond::Link(cell) => {
+                let erased: Arc<dyn ErasedCell> = cell.clone();
+                ErasedBond::Link(erased)
+            }
+            Bond::Ligation(ligation) => ErasedBond::Ligation(ligation.clone()),
+        }
+    }
+}
+
 impl Serialize for ErasedBond {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -196,8 +220,8 @@ impl<'de> Deserialize<'de> for ErasedBond {
 }
 
 impl Oxide for ErasedBond {
-    fn schema() -> Structure {
-        Structure::Cid
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::Cid)
     }
 
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {

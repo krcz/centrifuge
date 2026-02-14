@@ -51,9 +51,10 @@ pub use cid::Cid;
 pub use cursor::{Cursor, CursorError};
 pub use oxide::{BondVisitor, ByteString, Oxide, compute_cid};
 pub use reflexive::{
-    Ligation, MULTIHASH_IDENTITY, POLYEPOXIDE_REFLEXIVE_CODEC, is_identity_cid, is_reflexive_cid,
-    ligase_cid, ligation_cid, make_identity_cid, resolve_ligation, resolve_ligation_bond,
-    resolve_reflexive_with_store, slot_cid,
+    Ligation, MULTIHASH_IDENTITY, POLYEPOXIDE_REFLEXIVE_CODEC, data_to_reflexive_cid,
+    is_identity_cid, is_reflexive_cid, ligase_cid, ligation_cid, make_identity_cid,
+    reflexive_to_data_cid, resolve_ligation, resolve_ligation_bond, resolve_reflexive_with_store,
+    slot_cid, with_codec,
 };
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};

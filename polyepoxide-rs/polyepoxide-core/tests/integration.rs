@@ -1,6 +1,8 @@
 //! Integration tests demonstrating nested structures with bonds.
 
-use polyepoxide_core::{Bond, BondVisitor, Cid, Oxide, Solvent, Structure, oxide};
+use polyepoxide_core::{
+    Bond, BondVisitor, Cell, Cid, ErasedBond, Ligation, Oxide, Solvent, Structure, oxide,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -235,7 +237,7 @@ fn oxide_attribute_macro() {
     let cell = solvent.add(point);
 
     // Verify schema
-    if let Structure::Record(fields) = SimplePoint::schema() {
+    if let Some(Structure::Record(fields)) = SimplePoint::schema().value() {
         assert_eq!(fields.len(), 2);
         assert!(fields.contains_key("x"));
         assert!(fields.contains_key("y"));
@@ -314,8 +316,11 @@ enum Color {
 #[test]
 fn enum_unit_variants() {
     // Schema should be Enum
-    if let Structure::Enum(variants) = Color::schema() {
-        assert_eq!(variants, vec!["Red", "Green", "Blue"]);
+    if let Some(Structure::Enum(variants)) = Color::schema().value() {
+        assert_eq!(
+            variants,
+            &vec!["Red".to_string(), "Green".to_string(), "Blue".to_string()]
+        );
     } else {
         panic!("Expected Enum schema");
     }
@@ -338,7 +343,7 @@ enum Shape {
 #[test]
 fn enum_tagged_variants() {
     // Schema should be Tagged
-    if let Structure::Tagged(variants) = Shape::schema() {
+    if let Some(Structure::Tagged(variants)) = Shape::schema().value() {
         assert_eq!(variants.len(), 3);
         assert!(variants.contains_key("Circle"));
         assert!(variants.contains_key("Rectangle"));
@@ -364,7 +369,7 @@ struct Pair(String, i32);
 #[test]
 fn tuple_struct() {
     // Schema should be Tuple
-    if let Structure::Tuple(elems) = Pair::schema() {
+    if let Some(Structure::Tuple(elems)) = Pair::schema().value() {
         assert_eq!(elems.len(), 2);
     } else {
         panic!("Expected Tuple schema");
@@ -384,7 +389,7 @@ struct Marker;
 #[test]
 fn unit_struct() {
     // Schema should be Unit
-    assert!(matches!(Marker::schema(), Structure::Unit));
+    assert!(matches!(Marker::schema().value(), Some(Structure::Unit)));
 
     // Roundtrip
     let bytes = Marker.to_bytes();
@@ -402,7 +407,7 @@ struct RenamedFields {
 
 #[test]
 fn oxide_rename_attribute() {
-    if let Structure::Record(fields) = RenamedFields::schema() {
+    if let Some(Structure::Record(fields)) = RenamedFields::schema().value() {
         assert!(fields.contains_key("firstName"));
         assert!(fields.contains_key("lastName"));
         assert!(!fields.contains_key("first_name"));
@@ -423,7 +428,7 @@ struct WithSkipped {
 
 #[test]
 fn oxide_skip_attribute() {
-    if let Structure::Record(fields) = WithSkipped::schema() {
+    if let Some(Structure::Record(fields)) = WithSkipped::schema().value() {
         assert!(fields.contains_key("name"));
         assert!(!fields.contains_key("cached_value"));
     } else {
@@ -442,7 +447,29 @@ struct Wrapper<T: Oxide> {
 fn generic_struct() {
     // Schema for Wrapper<String>
     let schema = <Wrapper<String>>::schema();
-    if let Structure::Record(fields) = schema {
+    let solvent = Solvent::new();
+    let resolved = solvent.add_bond(&schema);
+    let root = match resolved {
+        Bond::Link(cell) => cell.value().clone(),
+        Bond::Ligation(ligation) => match *ligation {
+            Ligation::Ligase(args) => {
+                let Some(entry) = args.first() else {
+                    panic!("ligase args should not be empty");
+                };
+                let ErasedBond::Link(cell) = solvent.add_erased_bond(entry) else {
+                    panic!("ligase entry should resolve to a link");
+                };
+                let Some(cell) = cell.into_any_arc().downcast::<Cell<Structure>>().ok() else {
+                    panic!("ligase entry should resolve to Structure");
+                };
+                cell.value().clone()
+            }
+            Ligation::Slot(_) => panic!("schema root should not be Slot"),
+        },
+        Bond::Unresolved(_) => panic!("schema should resolve"),
+    };
+
+    if let Structure::Record(fields) = root {
         assert!(fields.contains_key("inner"));
     } else {
         panic!("Expected Record schema");

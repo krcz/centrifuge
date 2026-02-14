@@ -6,7 +6,9 @@ use std::sync::{Arc, RwLock};
 use crate::bond::{Bond, ErasedBond};
 use crate::cell::{Cell, ErasedCell};
 use crate::oxide::{BondVisitor, Oxide};
-use crate::reflexive::{Ligation, is_identity_cid, is_reflexive_cid, parse_ligation_bytes};
+use crate::reflexive::{
+    Ligation, is_identity_cid, is_reflexive_cid, parse_ligation_bytes, reflexive_to_data_cid,
+};
 use crate::store::{Store, identity_overlay};
 
 /// Error type for solvent operations.
@@ -49,7 +51,9 @@ impl Solvent {
             return parse_ligation_bytes(cid.hash().digest());
         }
 
-        self.get::<Ligation>(cid).map(|cell| cell.value().clone())
+        let data_cid = reflexive_to_data_cid(cid);
+        self.get::<Ligation>(&data_cid)
+            .map(|cell| cell.value().clone())
     }
 
     fn add_erased_cell(&self, cell: Arc<dyn ErasedCell>) -> Arc<dyn ErasedCell> {
@@ -205,8 +209,8 @@ impl Solvent {
 
         // Persist schema tree using a temporary solvent.
         let schemas = Solvent::new();
-        let schema_cell = schemas.add(T::schema());
-        let schema_cid = schema_cell.cid();
+        let schema_root = schemas.add_bond(&T::schema());
+        let schema_cid = schema_root.cid();
 
         for schema_erased in schemas.all_cells() {
             let cid = schema_erased.cid();
@@ -388,15 +392,17 @@ mod tests {
         let nested = Structure::sequence(Structure::Unicode);
         let cell = solvent.add(nested);
 
-        assert_eq!(solvent.len(), 2);
+        assert_eq!(solvent.len(), 3);
 
-        if let Structure::Sequence(inner_bond) = cell.value() {
-            assert!(inner_bond.is_resolved());
-            let inner_cid = inner_bond.cid();
-            assert!(solvent.contains(&inner_cid));
-        } else {
+        let Bond::Link(struct_cell) = cell.value() else {
+            panic!("Expected root schema link");
+        };
+        let Structure::Sequence(inner_bond) = struct_cell.value() else {
             panic!("Expected Sequence");
-        }
+        };
+        assert!(inner_bond.is_resolved());
+        let inner_cid = inner_bond.cid();
+        assert!(solvent.contains(&inner_cid));
     }
 
     #[test]
@@ -409,7 +415,7 @@ mod tests {
         solvent.add(s1);
         solvent.add(s2);
 
-        assert_eq!(solvent.len(), 2);
+        assert_eq!(solvent.len(), 3);
     }
 
     #[test]
@@ -420,6 +426,6 @@ mod tests {
 
         solvent.add(deep);
 
-        assert_eq!(solvent.len(), 4);
+        assert_eq!(solvent.len(), 5);
     }
 }

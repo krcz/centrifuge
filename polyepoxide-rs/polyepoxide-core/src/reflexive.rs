@@ -2,8 +2,8 @@ use cid::{Cid, multihash::Multihash};
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize};
 
-use crate::bond::ErasedBond;
-use crate::oxide::{BondVisitor, Oxide};
+use crate::bond::{Bond, ErasedBond};
+use crate::oxide::{BondVisitor, DAG_CBOR_CODEC, Oxide};
 use crate::{IntType, Solvent, Store, Structure};
 
 /// Internal multicodec used for Polyepoxide reflexive references.
@@ -21,10 +21,10 @@ pub enum Ligation {
 }
 
 impl Oxide for Ligation {
-    fn schema() -> Structure {
+    fn schema() -> crate::Bond<Structure> {
         Structure::tagged([
             ("Ligase", Structure::sequence(Structure::Cid)),
-            ("Slot", Structure::Int(IntType::U16)),
+            ("Slot", Bond::new(Structure::Int(IntType::U16))),
         ])
     }
 
@@ -56,6 +56,21 @@ pub fn is_identity_cid(cid: &Cid) -> bool {
 /// Returns true if the CID uses the reflexive multicodec.
 pub fn is_reflexive_cid(cid: &Cid) -> bool {
     cid.codec() == POLYEPOXIDE_REFLEXIVE_CODEC
+}
+
+/// Re-encodes a CID with a different multicodec while preserving multihash.
+pub fn with_codec(cid: &Cid, codec: u64) -> Cid {
+    Cid::new_v1(codec, *cid.hash())
+}
+
+/// Converts reflexive CID to DAG-CBOR CID.
+pub fn reflexive_to_data_cid(cid: &Cid) -> Cid {
+    with_codec(cid, DAG_CBOR_CODEC)
+}
+
+/// Converts DAG-CBOR CID to reflexive CID.
+pub fn data_to_reflexive_cid(cid: &Cid) -> Cid {
+    with_codec(cid, POLYEPOXIDE_REFLEXIVE_CODEC)
 }
 
 /// Builds a CID using identity multihash for the provided raw bytes.
@@ -110,7 +125,8 @@ pub fn resolve_reflexive_with_store<S: Store>(
     let ligation = if is_identity_cid(&cid) {
         parse_ligation_bytes(cid.hash().digest())
     } else {
-        let Some(bytes) = store.get(&cid)? else {
+        let data_cid = reflexive_to_data_cid(&cid);
+        let Some(bytes) = store.get(&data_cid)? else {
             return Ok(None);
         };
         parse_ligation_bytes(&bytes)

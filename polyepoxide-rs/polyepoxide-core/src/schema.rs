@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bond::Bond;
 use crate::oxide::{BondVisitor, Oxide};
+use crate::reflexive::Ligation;
 use crate::solvent::Solvent;
 
 /// Integer type variants for the schema.
@@ -26,13 +27,13 @@ impl IntType {
 }
 
 impl Oxide for IntType {
-    fn schema() -> Structure {
-        Structure::Enum(
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::Enum(
             Self::variant_names()
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-        )
+        ))
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -57,13 +58,13 @@ impl FloatType {
 }
 
 impl Oxide for FloatType {
-    fn schema() -> Structure {
-        Structure::Enum(
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::Enum(
             Self::variant_names()
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-        )
+        ))
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -130,74 +131,91 @@ pub enum Structure {
     // Polyepoxide-specific
     /// Reference to another oxide (lazy-loadable).
     Bond(Bond<Structure>),
-    /// Reference to n-th ancestor in schema tree (for recursive types).
-    /// 0 = immediate parent, 1 = grandparent, etc.
-    SelfRef(u32),
 }
 
 impl Structure {
     /// Creates an optional type (sequence constrained to 0 or 1 elements).
-    pub fn option(inner: Structure) -> Self {
-        Structure::Sequence(Bond::new(inner))
+    pub fn option(inner: impl Into<Bond<Structure>>) -> Bond<Structure> {
+        Bond::new(Structure::Sequence(inner.into()))
     }
 
     /// Creates a result type (tagged union of ok/err).
-    pub fn result(ok: Structure, err: Structure) -> Self {
+    pub fn result(
+        ok: impl Into<Bond<Structure>>,
+        err: impl Into<Bond<Structure>>,
+    ) -> Bond<Structure> {
         let mut variants = IndexMap::new();
-        variants.insert("ok".to_string(), Bond::new(ok));
-        variants.insert("err".to_string(), Bond::new(err));
-        Structure::Tagged(variants)
+        variants.insert("ok".to_string(), ok.into());
+        variants.insert("err".to_string(), err.into());
+        Bond::new(Structure::Tagged(variants))
     }
 
     /// Creates a sequence type.
-    pub fn sequence(inner: Structure) -> Self {
-        Structure::Sequence(Bond::new(inner))
+    pub fn sequence(inner: impl Into<Bond<Structure>>) -> Bond<Structure> {
+        Bond::new(Structure::Sequence(inner.into()))
     }
 
     /// Creates a bond type (reference to another oxide).
-    pub fn bond(inner: Structure) -> Self {
-        Structure::Bond(Bond::new(inner))
+    pub fn bond(inner: impl Into<Bond<Structure>>) -> Bond<Structure> {
+        Bond::new(Structure::Bond(inner.into()))
     }
 
     /// Creates an unordered map type.
-    pub fn map(key: Structure, value: Structure) -> Self {
-        Structure::Map {
-            key: Bond::new(key),
-            value: Bond::new(value),
-        }
+    pub fn map(
+        key: impl Into<Bond<Structure>>,
+        value: impl Into<Bond<Structure>>,
+    ) -> Bond<Structure> {
+        Bond::new(Structure::Map {
+            key: key.into(),
+            value: value.into(),
+        })
     }
 
     /// Creates an ordered map type.
-    pub fn ordered_map(key: Structure, value: Structure) -> Self {
-        Structure::OrderedMap {
-            key: Bond::new(key),
-            value: Bond::new(value),
-        }
+    pub fn ordered_map(
+        key: impl Into<Bond<Structure>>,
+        value: impl Into<Bond<Structure>>,
+    ) -> Bond<Structure> {
+        Bond::new(Structure::OrderedMap {
+            key: key.into(),
+            value: value.into(),
+        })
     }
 
     /// Creates a record type from field definitions.
-    pub fn record(fields: impl IntoIterator<Item = (&'static str, Structure)>) -> Self {
-        Structure::Record(
+    pub fn record<V>(fields: impl IntoIterator<Item = (&'static str, V)>) -> Bond<Structure>
+    where
+        V: Into<Bond<Structure>>,
+    {
+        Bond::new(Structure::Record(
             fields
                 .into_iter()
-                .map(|(k, v)| (k.to_string(), Bond::new(v)))
+                .map(|(k, v)| (k.to_string(), v.into()))
                 .collect(),
-        )
+        ))
     }
 
     /// Creates a tagged union type from variant definitions.
-    pub fn tagged(variants: impl IntoIterator<Item = (&'static str, Structure)>) -> Self {
-        Structure::Tagged(
+    pub fn tagged<V>(variants: impl IntoIterator<Item = (&'static str, V)>) -> Bond<Structure>
+    where
+        V: Into<Bond<Structure>>,
+    {
+        Bond::new(Structure::Tagged(
             variants
                 .into_iter()
-                .map(|(k, v)| (k.to_string(), Bond::new(v)))
+                .map(|(k, v)| (k.to_string(), v.into()))
                 .collect(),
-        )
+        ))
     }
 
     /// Creates a tuple type.
-    pub fn tuple(elements: impl IntoIterator<Item = Structure>) -> Self {
-        Structure::Tuple(elements.into_iter().map(Bond::new).collect())
+    pub fn tuple<V>(elements: impl IntoIterator<Item = V>) -> Bond<Structure>
+    where
+        V: Into<Bond<Structure>>,
+    {
+        Bond::new(Structure::Tuple(
+            elements.into_iter().map(|v| v.into()).collect(),
+        ))
     }
 }
 
@@ -205,44 +223,65 @@ impl Oxide for Structure {
     /// Returns the schema of Structure itself.
     ///
     /// This is a tagged union describing all variants of the Structure enum.
-    /// Recursive references use SelfRef(0) to refer back to Structure.
-    fn schema() -> Structure {
-        // SelfRef(0) refers to the Structure type itself (breaks recursion)
-        let self_ref = Structure::SelfRef(0);
+    /// Recursive references use Slot(0) and are wrapped in Ligase.
+    fn schema() -> Bond<Structure> {
+        let self_ref: Bond<Structure> = Bond::from_ligation(Ligation::Slot(0));
 
-        // Schema for Map/OrderedMap payload: Record { key: Structure, value: Structure }
-        let map_payload =
-            Structure::record([("key", self_ref.clone()), ("value", self_ref.clone())]);
+        let map_payload = Bond::new(Structure::Record(
+            [
+                ("key".to_string(), self_ref.clone()),
+                ("value".to_string(), self_ref.clone()),
+            ]
+            .into_iter()
+            .collect(),
+        ));
 
-        Structure::tagged([
-            // Primitives (unit payloads)
-            ("Bool", Structure::Unit),
-            ("Char", Structure::Unit),
-            ("Unicode", Structure::Unit),
-            ("ByteString", Structure::Unit),
-            ("Cid", Structure::Unit),
-            ("Int", IntType::schema()),
-            ("Float", FloatType::schema()),
-            ("Unit", Structure::Unit),
-            // Compound types
-            ("Sequence", self_ref.clone()),
-            ("Tuple", Structure::sequence(self_ref.clone())),
-            (
-                "Record",
-                Structure::ordered_map(Structure::Unicode, self_ref.clone()),
-            ),
-            (
-                "Tagged",
-                Structure::ordered_map(Structure::Unicode, self_ref.clone()),
-            ),
-            ("Enum", Structure::sequence(Structure::Unicode)),
-            // Map types
-            ("Map", map_payload.clone()),
-            ("OrderedMap", map_payload),
-            // Polyepoxide-specific
-            ("Bond", self_ref),
-            ("SelfRef", Structure::Int(IntType::U32)),
-        ])
+        let root = Bond::new(Structure::Tagged(
+            [
+                // Primitives (unit payloads)
+                ("Bool".to_string(), Bond::new(Structure::Unit)),
+                ("Char".to_string(), Bond::new(Structure::Unit)),
+                ("Unicode".to_string(), Bond::new(Structure::Unit)),
+                ("ByteString".to_string(), Bond::new(Structure::Unit)),
+                ("Cid".to_string(), Bond::new(Structure::Unit)),
+                ("Int".to_string(), IntType::schema()),
+                ("Float".to_string(), FloatType::schema()),
+                ("Unit".to_string(), Bond::new(Structure::Unit)),
+                // Compound types
+                ("Sequence".to_string(), self_ref.clone()),
+                (
+                    "Tuple".to_string(),
+                    Bond::new(Structure::Sequence(self_ref.clone())),
+                ),
+                (
+                    "Record".to_string(),
+                    Bond::new(Structure::OrderedMap {
+                        key: Bond::new(Structure::Unicode),
+                        value: self_ref.clone(),
+                    }),
+                ),
+                (
+                    "Tagged".to_string(),
+                    Bond::new(Structure::OrderedMap {
+                        key: Bond::new(Structure::Unicode),
+                        value: self_ref.clone(),
+                    }),
+                ),
+                (
+                    "Enum".to_string(),
+                    Bond::new(Structure::Sequence(Bond::new(Structure::Unicode))),
+                ),
+                // Map types
+                ("Map".to_string(), map_payload.clone()),
+                ("OrderedMap".to_string(), map_payload),
+                // Polyepoxide-specific
+                ("Bond".to_string(), self_ref),
+            ]
+            .into_iter()
+            .collect(),
+        ));
+
+        Bond::from_ligation(Ligation::Ligase(vec![root.erased()]))
     }
 
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
@@ -263,7 +302,7 @@ impl Oxide for Structure {
                 value.visit_bonds(visitor);
             }
             Structure::Bond(inner) => inner.visit_bonds(visitor),
-            // Primitives and SelfRef have no bonds
+            // Primitives have no bonds
             Structure::Bool
             | Structure::Char
             | Structure::Unicode
@@ -272,8 +311,7 @@ impl Oxide for Structure {
             | Structure::Int(_)
             | Structure::Float(_)
             | Structure::Unit
-            | Structure::Enum(_)
-            | Structure::SelfRef(_) => {}
+            | Structure::Enum(_) => {}
         }
     }
 
@@ -304,7 +342,7 @@ impl Oxide for Structure {
                 value: value.dissolve_in(solvent),
             },
             Structure::Bond(inner) => Structure::Bond(inner.dissolve_in(solvent)),
-            // Primitives and SelfRef are copied as-is
+            // Primitives are copied as-is
             other => other.clone(),
         }
     }
@@ -347,7 +385,6 @@ impl PartialEq for Structure {
                 Structure::OrderedMap { key: k2, value: v2 },
             ) => k1.cid() == k2.cid() && v1.cid() == v2.cid(),
             (Structure::Bond(a), Structure::Bond(b)) => a.cid() == b.cid(),
-            (Structure::SelfRef(a), Structure::SelfRef(b)) => a == b,
             _ => false,
         }
     }
@@ -359,6 +396,30 @@ impl Eq for Structure {}
 mod tests {
     use super::*;
     use crate::oxide::Oxide;
+    use crate::{Cell, ErasedBond, Ligation};
+
+    fn resolve_schema_root(schema: Bond<Structure>) -> Structure {
+        let solvent = Solvent::new();
+        match solvent.add_bond(&schema) {
+            Bond::Link(cell) => cell.value().clone(),
+            Bond::Ligation(ligation) => match *ligation {
+                Ligation::Ligase(args) => {
+                    let Some(entry) = args.first() else {
+                        panic!("ligase args should not be empty");
+                    };
+                    let ErasedBond::Link(cell) = solvent.add_erased_bond(entry) else {
+                        panic!("ligase entry should resolve to a link");
+                    };
+                    let Some(cell) = cell.into_any_arc().downcast::<Cell<Structure>>().ok() else {
+                        panic!("ligase entry should resolve to Structure");
+                    };
+                    cell.value().clone()
+                }
+                Ligation::Slot(_) => panic!("schema root should not be Slot"),
+            },
+            Bond::Unresolved(_) => panic!("schema should resolve"),
+        }
+    }
 
     #[test]
     fn structure_record_preserves_order() {
@@ -368,7 +429,7 @@ mod tests {
             ("third", Structure::Unicode),
         ]);
 
-        if let Structure::Record(f) = schema {
+        if let Some(Structure::Record(f)) = schema.value() {
             let keys: Vec<_> = f.keys().collect();
             assert_eq!(keys, vec!["first", "second", "third"]);
         } else {
@@ -379,13 +440,13 @@ mod tests {
     #[test]
     fn structure_option_sugar() {
         let opt = Structure::option(Structure::Unicode);
-        assert!(matches!(opt, Structure::Sequence(_)));
+        assert!(matches!(opt.value(), Some(Structure::Sequence(_))));
     }
 
     #[test]
     fn structure_result_sugar() {
         let res = Structure::result(Structure::Unicode, Structure::Int(IntType::I32));
-        if let Structure::Tagged(variants) = res {
+        if let Some(Structure::Tagged(variants)) = res.value() {
             assert_eq!(variants.len(), 2);
             assert!(variants.contains_key("ok"));
             assert!(variants.contains_key("err"));
@@ -397,7 +458,7 @@ mod tests {
     #[test]
     fn int_type_schema() {
         let schema = IntType::schema();
-        if let Structure::Enum(variants) = schema {
+        if let Some(Structure::Enum(variants)) = schema.value() {
             assert_eq!(variants.len(), 8);
             assert_eq!(variants[0], "U8");
             assert_eq!(variants[7], "I64");
@@ -409,7 +470,7 @@ mod tests {
     #[test]
     fn float_type_schema() {
         let schema = FloatType::schema();
-        if let Structure::Enum(variants) = schema {
+        if let Some(Structure::Enum(variants)) = schema.value() {
             assert_eq!(variants.len(), 2);
             assert_eq!(variants[0], "F32");
             assert_eq!(variants[1], "F64");
@@ -421,15 +482,15 @@ mod tests {
     #[test]
     fn structure_schema_is_tagged() {
         let schema = Structure::schema();
-        if let Structure::Tagged(variants) = &schema {
-            // Should have all 17 variants
-            assert_eq!(variants.len(), 17);
+        let root = resolve_schema_root(schema);
+        if let Structure::Tagged(variants) = root {
+            // Should have all 16 variants
+            assert_eq!(variants.len(), 16);
             assert!(variants.contains_key("Bool"));
             assert!(variants.contains_key("Cid"));
             assert!(variants.contains_key("Record"));
-            assert!(variants.contains_key("SelfRef"));
         } else {
-            panic!("Expected Tagged, got {:?}", schema);
+            panic!("Expected Tagged");
         }
     }
 
@@ -463,7 +524,7 @@ mod tests {
         ]);
 
         let bytes = original.to_bytes();
-        let recovered: Structure = Oxide::from_bytes(&bytes).unwrap();
+        let recovered: Bond<Structure> = Oxide::from_bytes(&bytes).unwrap();
 
         // After roundtrip, bonds are unresolved but keys should match
         assert_eq!(original.compute_cid(), recovered.compute_cid());

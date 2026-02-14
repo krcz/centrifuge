@@ -449,7 +449,6 @@ impl TreeModel {
                     .unwrap_or_else(|| "?".to_string());
                 format!("Bond<{}>", inner_hint)
             }
-            Structure::SelfRef(n) => format!("SelfRef({})", n),
         }
     }
 
@@ -561,7 +560,7 @@ impl TreeModel {
 
         // Use schema CID as both data and schema (schema is self-describing)
         self.root_cid = schema_cid;
-        self.root_schema_cid = self.schemas.add(Structure::schema()).cid();
+        self.root_schema_cid = Structure::schema().cid();
         self.root_context = Vec::new();
         self.rebuild_tree()?;
 

@@ -3,6 +3,7 @@ use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt::Debug;
 
+use crate::bond::Bond;
 use crate::schema::Structure;
 use crate::solvent::Solvent;
 
@@ -29,7 +30,7 @@ pub trait BondVisitor {
 /// - Schema-aware (can describe its own structure)
 pub trait Oxide: Debug + Serialize + DeserializeOwned + Clone + Send + Sync + 'static {
     /// Returns the structure describing this oxide's type.
-    fn schema() -> Structure;
+    fn schema() -> Bond<Structure>;
 
     /// Visits all bonds contained in this oxide.
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor);
@@ -59,8 +60,8 @@ pub trait Oxide: Debug + Serialize + DeserializeOwned + Clone + Send + Sync + 's
 // Primitive implementations
 
 impl Oxide for bool {
-    fn schema() -> Structure {
-        Structure::Bool
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::Bool)
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -71,8 +72,8 @@ impl Oxide for bool {
 }
 
 impl Oxide for String {
-    fn schema() -> Structure {
-        Structure::Unicode
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::Unicode)
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -83,8 +84,8 @@ impl Oxide for String {
 }
 
 impl Oxide for Cid {
-    fn schema() -> Structure {
-        Structure::Cid
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::Cid)
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -125,8 +126,8 @@ impl From<&[u8]> for ByteString {
 }
 
 impl Oxide for ByteString {
-    fn schema() -> Structure {
-        Structure::ByteString
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::ByteString)
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -139,8 +140,8 @@ impl Oxide for ByteString {
 macro_rules! impl_oxide_int {
     ($t:ty, $variant:ident) => {
         impl Oxide for $t {
-            fn schema() -> Structure {
-                Structure::Int(crate::schema::IntType::$variant)
+            fn schema() -> Bond<Structure> {
+                Bond::new(Structure::Int(crate::schema::IntType::$variant))
             }
 
             fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -164,8 +165,8 @@ impl_oxide_int!(i64, I64);
 macro_rules! impl_oxide_float {
     ($t:ty, $variant:ident) => {
         impl Oxide for $t {
-            fn schema() -> Structure {
-                Structure::Float(crate::schema::FloatType::$variant)
+            fn schema() -> Bond<Structure> {
+                Bond::new(Structure::Float(crate::schema::FloatType::$variant))
             }
 
             fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -181,8 +182,8 @@ impl_oxide_float!(f32, F32);
 impl_oxide_float!(f64, F64);
 
 impl Oxide for () {
-    fn schema() -> Structure {
-        Structure::Unit
+    fn schema() -> Bond<Structure> {
+        Bond::new(Structure::Unit)
     }
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
@@ -191,7 +192,7 @@ impl Oxide for () {
 }
 
 impl<T: Oxide> Oxide for Vec<T> {
-    fn schema() -> Structure {
+    fn schema() -> Bond<Structure> {
         Structure::sequence(T::schema())
     }
 
@@ -207,7 +208,7 @@ impl<T: Oxide> Oxide for Vec<T> {
 }
 
 impl<T: Oxide> Oxide for Option<T> {
-    fn schema() -> Structure {
+    fn schema() -> Bond<Structure> {
         Structure::option(T::schema())
     }
 
@@ -223,7 +224,7 @@ impl<T: Oxide> Oxide for Option<T> {
 }
 
 impl<T: Oxide, E: Oxide> Oxide for Result<T, E> {
-    fn schema() -> Structure {
+    fn schema() -> Bond<Structure> {
         Structure::result(T::schema(), E::schema())
     }
 
@@ -264,7 +265,7 @@ mod tests {
     #[test]
     fn vec_schema() {
         let schema = <Vec<u32>>::schema();
-        assert!(matches!(schema, Structure::Sequence(_)));
+        assert!(matches!(schema.value(), Some(Structure::Sequence(_))));
     }
 
     #[test]
