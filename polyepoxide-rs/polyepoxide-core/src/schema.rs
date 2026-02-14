@@ -2,7 +2,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::bond::Bond;
-use crate::oxide::{BondMapper, BondVisitor, Oxide};
+use crate::oxide::{BondVisitor, Oxide};
+use crate::solvent::Solvent;
 
 /// Integer type variants for the schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +37,7 @@ impl Oxide for IntType {
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, _solvent: &Solvent) -> Self {
         *self
     }
 }
@@ -67,7 +68,7 @@ impl Oxide for FloatType {
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, _solvent: &Solvent) -> Self {
         *self
     }
 }
@@ -276,33 +277,33 @@ impl Oxide for Structure {
         }
     }
 
-    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, solvent: &Solvent) -> Self {
         match self {
-            Structure::Sequence(inner) => Structure::Sequence(inner.map_bonds(mapper)),
+            Structure::Sequence(inner) => Structure::Sequence(inner.dissolve_in(solvent)),
             Structure::Tuple(elements) => {
-                Structure::Tuple(elements.iter().map(|el| el.map_bonds(mapper)).collect())
+                Structure::Tuple(elements.iter().map(|el| el.dissolve_in(solvent)).collect())
             }
             Structure::Record(fields) => Structure::Record(
                 fields
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.map_bonds(mapper)))
+                    .map(|(k, v)| (k.clone(), v.dissolve_in(solvent)))
                     .collect(),
             ),
             Structure::Tagged(variants) => Structure::Tagged(
                 variants
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.map_bonds(mapper)))
+                    .map(|(k, v)| (k.clone(), v.dissolve_in(solvent)))
                     .collect(),
             ),
             Structure::Map { key, value } => Structure::Map {
-                key: key.map_bonds(mapper),
-                value: value.map_bonds(mapper),
+                key: key.dissolve_in(solvent),
+                value: value.dissolve_in(solvent),
             },
             Structure::OrderedMap { key, value } => Structure::OrderedMap {
-                key: key.map_bonds(mapper),
-                value: value.map_bonds(mapper),
+                key: key.dissolve_in(solvent),
+                value: value.dissolve_in(solvent),
             },
-            Structure::Bond(inner) => Structure::Bond(inner.map_bonds(mapper)),
+            Structure::Bond(inner) => Structure::Bond(inner.dissolve_in(solvent)),
             // Primitives and SelfRef are copied as-is
             other => other.clone(),
         }

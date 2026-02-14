@@ -3,8 +3,8 @@ use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt::Debug;
 
-use crate::bond::Bond;
 use crate::schema::Structure;
+use crate::solvent::Solvent;
 
 /// DAG-CBOR codec code (0x71).
 pub const DAG_CBOR_CODEC: u64 = 0x71;
@@ -21,16 +21,6 @@ pub trait BondVisitor {
     fn visit_bond(&mut self, cid: &Cid);
 }
 
-/// A mapper for transforming bonds in an oxide.
-///
-/// Used to recursively process nested bonds
-/// (e.g., adding their targets to a solvent for deduplication).
-pub trait BondMapper {
-    /// Maps a bond, potentially transforming it.
-    /// This allows the mapper to access the bond's value and recursively process it.
-    fn map_bond<T: Oxide>(&mut self, bond: Bond<T>) -> Bond<T>;
-}
-
 /// An oxide is a value that can be stored in the Polyepoxide DAG.
 ///
 /// To be an oxide, a value must be:
@@ -44,9 +34,8 @@ pub trait Oxide: Debug + Serialize + DeserializeOwned + Clone + Send + Sync + 's
     /// Visits all bonds contained in this oxide.
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor);
 
-    /// Creates a new oxide with bonds transformed by the mapper.
-    /// Used to recursively add nested bond targets when adding to a solvent.
-    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self;
+    /// Creates a new oxide with all nested bonds dissolved in the given solvent.
+    fn dissolve_in(&self, solvent: &Solvent) -> Self;
 
     /// Computes the content-addressed CID of this oxide.
     fn compute_cid(&self) -> Cid {
@@ -76,7 +65,7 @@ impl Oxide for bool {
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, _solvent: &Solvent) -> Self {
         *self
     }
 }
@@ -88,7 +77,7 @@ impl Oxide for String {
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, _solvent: &Solvent) -> Self {
         self.clone()
     }
 }
@@ -100,7 +89,7 @@ impl Oxide for Cid {
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, _solvent: &Solvent) -> Self {
         *self
     }
 }
@@ -142,7 +131,7 @@ impl Oxide for ByteString {
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, _solvent: &Solvent) -> Self {
         self.clone()
     }
 }
@@ -156,7 +145,7 @@ macro_rules! impl_oxide_int {
 
             fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-            fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+            fn dissolve_in(&self, _solvent: &Solvent) -> Self {
                 *self
             }
         }
@@ -181,7 +170,7 @@ macro_rules! impl_oxide_float {
 
             fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-            fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
+            fn dissolve_in(&self, _solvent: &Solvent) -> Self {
                 *self
             }
         }
@@ -198,7 +187,7 @@ impl Oxide for () {
 
     fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {}
+    fn dissolve_in(&self, _solvent: &Solvent) -> Self {}
 }
 
 impl<T: Oxide> Oxide for Vec<T> {
@@ -212,8 +201,8 @@ impl<T: Oxide> Oxide for Vec<T> {
         }
     }
 
-    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self {
-        self.iter().map(|item| item.map_bonds(mapper)).collect()
+    fn dissolve_in(&self, solvent: &Solvent) -> Self {
+        self.iter().map(|item| item.dissolve_in(solvent)).collect()
     }
 }
 
@@ -228,8 +217,8 @@ impl<T: Oxide> Oxide for Option<T> {
         }
     }
 
-    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self {
-        self.as_ref().map(|inner| inner.map_bonds(mapper))
+    fn dissolve_in(&self, solvent: &Solvent) -> Self {
+        self.as_ref().map(|inner| inner.dissolve_in(solvent))
     }
 }
 
@@ -245,10 +234,10 @@ impl<T: Oxide, E: Oxide> Oxide for Result<T, E> {
         }
     }
 
-    fn map_bonds(&self, mapper: &mut impl BondMapper) -> Self {
+    fn dissolve_in(&self, solvent: &Solvent) -> Self {
         match self {
-            Ok(v) => Ok(v.map_bonds(mapper)),
-            Err(e) => Err(e.map_bonds(mapper)),
+            Ok(v) => Ok(v.dissolve_in(solvent)),
+            Err(e) => Err(e.dissolve_in(solvent)),
         }
     }
 }

@@ -1,7 +1,10 @@
 use cid::Cid;
+use std::any::Any;
+use std::sync::Arc;
 use std::sync::OnceLock;
 
-use crate::oxide::Oxide;
+use crate::oxide::{BondVisitor, Oxide};
+use crate::solvent::Solvent;
 
 /// A cell wraps an oxide value and caches its computed CID.
 ///
@@ -56,6 +59,48 @@ impl<T: Oxide> std::fmt::Debug for Cell<T> {
             .field("value", &self.value)
             .field("cid", &self.cid.get())
             .finish()
+    }
+}
+
+/// A type-erased cell used by Solvent to store heterogeneous oxide values.
+pub trait ErasedCell: Any + Send + Sync + std::fmt::Debug {
+    /// Returns the CID of the underlying value.
+    fn cid(&self) -> Cid;
+    /// Returns the value as `Any` for type checks/downcasting.
+    fn as_any(&self) -> &dyn Any;
+    /// Converts this arc into an `Any` arc to enable owned downcasting.
+    fn into_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+    /// Returns a dissolved clone of this cell.
+    fn dissolve_in(&self, solvent: &Solvent) -> Arc<dyn ErasedCell>;
+    /// Serializes the underlying value.
+    fn to_bytes(&self) -> Vec<u8>;
+    /// Visits all nested bonds.
+    fn visit_bonds(&self, visitor: &mut dyn BondVisitor);
+}
+
+impl<T: Oxide> ErasedCell for Cell<T> {
+    fn cid(&self) -> Cid {
+        Cell::cid(self)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
+
+    fn dissolve_in(&self, solvent: &Solvent) -> Arc<dyn ErasedCell> {
+        Arc::new(Cell::with_cid(self.value.dissolve_in(solvent), self.cid()))
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.value.to_bytes()
+    }
+
+    fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
+        self.value.visit_bonds(visitor);
     }
 }
 

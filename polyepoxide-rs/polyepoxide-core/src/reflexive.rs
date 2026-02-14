@@ -2,7 +2,9 @@ use cid::{Cid, multihash::Multihash};
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize};
 
-use crate::{BondMapper, BondVisitor, IntType, Oxide, Store, Structure};
+use crate::bond::ErasedBond;
+use crate::oxide::{BondVisitor, Oxide};
+use crate::{IntType, Solvent, Store, Structure};
 
 /// Internal multicodec used for Polyepoxide reflexive references.
 pub const POLYEPOXIDE_REFLEXIVE_CODEC: u64 = 0x300001;
@@ -13,7 +15,7 @@ pub const MULTIHASH_IDENTITY: u64 = 0x00;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ligation {
     /// Establishes scope and entry-point (index 0).
-    Ligase(Vec<Cid>),
+    Ligase(Vec<ErasedBond>),
     /// Resolves to scope[index] at traversal time.
     Slot(u16),
 }
@@ -26,10 +28,23 @@ impl Oxide for Ligation {
         ])
     }
 
-    fn visit_bonds(&self, _visitor: &mut dyn BondVisitor) {}
+    fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
+        if let Ligation::Ligase(args) = self {
+            for arg in args {
+                arg.visit_bonds(visitor);
+            }
+        }
+    }
 
-    fn map_bonds(&self, _mapper: &mut impl BondMapper) -> Self {
-        self.clone()
+    fn dissolve_in(&self, solvent: &Solvent) -> Self {
+        match self {
+            Ligation::Ligase(args) => Ligation::Ligase(
+                args.iter()
+                    .map(|arg| solvent.add_erased_bond(arg))
+                    .collect(),
+            ),
+            Ligation::Slot(index) => Ligation::Slot(*index),
+        }
     }
 }
 
@@ -59,10 +74,18 @@ pub fn slot_cid(slot: u16) -> Cid {
 }
 
 /// Creates a non-identity reflexive CID for a ligase argument list.
-pub fn ligase_cid(args: Vec<Cid>) -> Cid {
+pub fn ligase_cid(args: Vec<ErasedBond>) -> Cid {
     let bytes = Ligation::Ligase(args).to_bytes();
     let hash = Code::Blake3_256.digest(&bytes);
     Cid::new_v1(POLYEPOXIDE_REFLEXIVE_CODEC, hash)
+}
+
+/// Computes a reflexive CID for a ligation value.
+pub fn ligation_cid(ligation: &Ligation) -> Cid {
+    match ligation {
+        Ligation::Slot(slot) => slot_cid(*slot),
+        Ligation::Ligase(args) => ligase_cid(args.clone()),
+    }
 }
 
 /// Parses a `Ligation` from DAG-CBOR bytes.
@@ -96,23 +119,34 @@ pub fn resolve_reflexive_with_store<S: Store>(
     Ok(resolve_ligation(ligation, scope))
 }
 
-/// Resolves ligation semantics against the current scope.
-///
-/// `Ligase(args)` sets scope to `args` and resolves to `args[0]`.
-/// `Slot(i)` resolves to `scope[i]` and keeps scope unchanged.
-/// Out-of-range slots and empty ligase arguments return `None`.
-pub fn resolve_ligation(ligation: Option<Ligation>, scope: &[Cid]) -> Option<(Cid, Vec<Cid>)> {
+/// Resolves ligation semantics using erased bonds.
+pub fn resolve_ligation_bond(
+    ligation: Option<Ligation>,
+    scope: &[ErasedBond],
+) -> Option<(ErasedBond, Vec<ErasedBond>)> {
     let ligation = ligation?;
     match ligation {
         Ligation::Ligase(args) => {
-            let entry = args.first().copied()?;
+            let entry = args.first()?.clone();
             Some((entry, args))
         }
         Ligation::Slot(index) => scope
             .get(index as usize)
-            .copied()
+            .cloned()
             .map(|target| (target, scope.to_vec())),
     }
+}
+
+/// Resolves ligation semantics to concrete CIDs.
+///
+/// This helper is kept for schema/IPLD traversal code that tracks CID-only scope.
+pub fn resolve_ligation(ligation: Option<Ligation>, scope: &[Cid]) -> Option<(Cid, Vec<Cid>)> {
+    let scope_bonds: Vec<_> = scope.iter().copied().map(ErasedBond::from_cid).collect();
+    let (target, next_scope) = resolve_ligation_bond(ligation, &scope_bonds)?;
+    Some((
+        target.cid(),
+        next_scope.into_iter().map(|bond| bond.cid()).collect(),
+    ))
 }
 
 #[cfg(test)]
@@ -134,7 +168,14 @@ mod tests {
         let a = crate::compute_cid(b"a");
         let b = crate::compute_cid(b"b");
 
-        let resolved = resolve_ligation(Some(Ligation::Ligase(vec![a, b])), &[]).unwrap();
+        let resolved = resolve_ligation(
+            Some(Ligation::Ligase(vec![
+                ErasedBond::from_cid(a),
+                ErasedBond::from_cid(b),
+            ])),
+            &[],
+        )
+        .unwrap();
         assert_eq!(resolved.0, a);
         assert_eq!(resolved.1, vec![a, b]);
     }

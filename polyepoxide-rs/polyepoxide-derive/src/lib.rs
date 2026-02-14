@@ -144,7 +144,7 @@ fn get_serde_with_for_type(ty: &syn::Type) -> Option<&'static str> {
 
 /// Derive macro for the Oxide trait.
 ///
-/// Generates implementations for `schema()`, `visit_bonds()`, and `map_bonds()`.
+/// Generates implementations for `schema()`, `visit_bonds()`, and `dissolve_in()`.
 ///
 /// # Example
 ///
@@ -185,13 +185,13 @@ fn derive_oxide_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
 
     let schema_impl = schema::generate_schema(input, &crate_path)?;
     let visit_bonds_impl = generate_visit_bonds(input, &crate_path)?;
-    let map_bonds_impl = generate_map_bonds(input, &crate_path)?;
+    let dissolve_impl = generate_dissolve(input, &crate_path)?;
 
     Ok(quote! {
         impl #impl_generics #crate_path::Oxide for #name #ty_generics #where_clause {
             #schema_impl
             #visit_bonds_impl
-            #map_bonds_impl
+            #dissolve_impl
         }
     })
 }
@@ -367,13 +367,13 @@ fn generate_field_visits(
     }
 }
 
-fn generate_map_bonds(
+fn generate_dissolve(
     input: &DeriveInput,
     crate_path: &proc_macro2::TokenStream,
 ) -> syn::Result<proc_macro2::TokenStream> {
     match &input.data {
-        syn::Data::Struct(data) => generate_map_bonds_struct(&input.ident, data, crate_path),
-        syn::Data::Enum(data) => generate_map_bonds_enum(data, crate_path),
+        syn::Data::Struct(data) => generate_dissolve_struct(&input.ident, data, crate_path),
+        syn::Data::Enum(data) => generate_dissolve_enum(data, crate_path),
         syn::Data::Union(_) => Err(syn::Error::new_spanned(
             input,
             "Oxide cannot be derived for unions",
@@ -381,7 +381,7 @@ fn generate_map_bonds(
     }
 }
 
-fn generate_map_bonds_struct(
+fn generate_dissolve_struct(
     name: &syn::Ident,
     data: &syn::DataStruct,
     crate_path: &proc_macro2::TokenStream,
@@ -389,13 +389,13 @@ fn generate_map_bonds_struct(
     let construction = generate_field_mappings(name, &data.fields)?;
 
     Ok(quote! {
-        fn map_bonds(&self, mapper: &mut impl #crate_path::BondMapper) -> Self {
+        fn dissolve_in(&self, solvent: &#crate_path::Solvent) -> Self {
             #construction
         }
     })
 }
 
-fn generate_map_bonds_enum(
+fn generate_dissolve_enum(
     data: &syn::DataEnum,
     crate_path: &proc_macro2::TokenStream,
 ) -> syn::Result<proc_macro2::TokenStream> {
@@ -417,7 +417,7 @@ fn generate_map_bonds_enum(
                         let mapping = if attrs.skip {
                             quote! { ::std::default::Default::default() }
                         } else {
-                            quote! { #ident.map_bonds(mapper) }
+                            quote! { #ident.dissolve_in(solvent) }
                         };
                         Some(quote! { #ident: #mapping })
                     })
@@ -437,7 +437,7 @@ fn generate_map_bonds_enum(
                         if attrs.skip {
                             quote! { ::std::default::Default::default() }
                         } else {
-                            quote! { #binding.map_bonds(mapper) }
+                            quote! { #binding.dissolve_in(solvent) }
                         }
                     })
                     .collect();
@@ -449,7 +449,7 @@ fn generate_map_bonds_enum(
     }).collect();
 
     Ok(quote! {
-        fn map_bonds(&self, mapper: &mut impl #crate_path::BondMapper) -> Self {
+        fn dissolve_in(&self, solvent: &#crate_path::Solvent) -> Self {
             match self {
                 #(#arms),*
             }
@@ -472,7 +472,7 @@ fn generate_field_mappings(
                     let mapping = if attrs.skip {
                         quote! { ::std::default::Default::default() }
                     } else {
-                        quote! { self.#ident.map_bonds(mapper) }
+                        quote! { self.#ident.dissolve_in(solvent) }
                     };
                     Some(quote! { #ident: #mapping })
                 })
@@ -490,7 +490,7 @@ fn generate_field_mappings(
                     if attrs.skip {
                         quote! { ::std::default::Default::default() }
                     } else {
-                        quote! { self.#idx.map_bonds(mapper) }
+                        quote! { self.#idx.dissolve_in(solvent) }
                     }
                 })
                 .collect();

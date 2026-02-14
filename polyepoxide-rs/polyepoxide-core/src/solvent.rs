@@ -1,14 +1,12 @@
 use cid::Cid;
 use log::debug;
-use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use crate::bond::Bond;
-use crate::cell::Cell;
-use crate::oxide::{BondMapper, Oxide};
-use crate::reflexive::is_identity_cid;
-use crate::schema::Structure;
+use crate::bond::{Bond, ErasedBond};
+use crate::cell::{Cell, ErasedCell};
+use crate::oxide::{BondVisitor, Oxide};
+use crate::reflexive::{Ligation, is_identity_cid, is_reflexive_cid, parse_ligation_bytes};
 use crate::store::{Store, identity_overlay};
 
 /// Error type for solvent operations.
@@ -21,70 +19,90 @@ pub enum SolventError {
 }
 
 /// Solvent manages oxides in memory and coordinates with backing stores.
-///
-/// Responsibilities:
-/// - Deduplication: identical oxides share the same cell
-/// - Type-erased storage: stores heterogeneous oxide types
-///
-/// When adding an oxide, all nested bond targets are also added to the solvent,
-/// achieving deduplication of shared sub-structures.
-///
-/// Future: will coordinate with disk/remote stores for loading.
+#[derive(Debug)]
 pub struct Solvent {
-    cells: HashMap<Cid, Arc<dyn Any + Send + Sync>>,
+    cells: RwLock<HashMap<Cid, Arc<dyn ErasedCell>>>,
 }
 
 impl Solvent {
     /// Creates a new empty solvent.
     pub fn new() -> Self {
         Solvent {
-            cells: HashMap::new(),
+            cells: RwLock::new(HashMap::new()),
         }
+    }
+
+    fn get_erased(&self, cid: &Cid) -> Option<Arc<dyn ErasedCell>> {
+        self.cells.read().unwrap().get(cid).cloned()
+    }
+
+    fn all_cells(&self) -> Vec<Arc<dyn ErasedCell>> {
+        self.cells.read().unwrap().values().cloned().collect()
+    }
+
+    fn resolve_ligation_by_cid(&self, cid: &Cid) -> Option<Ligation> {
+        if !is_reflexive_cid(cid) {
+            return None;
+        }
+
+        if is_identity_cid(cid) {
+            return parse_ligation_bytes(cid.hash().digest());
+        }
+
+        self.get::<Ligation>(cid).map(|cell| cell.value().clone())
+    }
+
+    fn add_erased_cell(&self, cell: Arc<dyn ErasedCell>) -> Arc<dyn ErasedCell> {
+        let cid = cell.cid();
+        if let Some(existing) = self.get_erased(&cid) {
+            return existing;
+        }
+
+        let dissolved = cell.dissolve_in(self);
+        let dissolved_cid = dissolved.cid();
+        debug_assert_eq!(cid, dissolved_cid);
+
+        let mut cells = self.cells.write().unwrap();
+        if let Some(existing) = cells.get(&dissolved_cid) {
+            return existing.clone();
+        }
+        cells.insert(dissolved_cid, dissolved.clone());
+        dissolved
     }
 
     /// Adds an oxide to the solvent, returning its cell.
-    ///
-    /// If an oxide with the same CID already exists, returns the existing cell.
-    /// All nested bonds are recursively added to the solvent, achieving
-    /// deduplication of shared sub-structures.
-    pub fn add<T: Oxide>(&mut self, value: T) -> Arc<Cell<T>> {
-        // Compute CID first - this is the same whether bonds are resolved or not,
-        // since bonds serialize to just their CID
+    pub fn add<T: Oxide>(&self, value: T) -> Arc<Cell<T>> {
         let cid = value.compute_cid();
         debug!("Adding {:?}", cid);
 
-        // Check if already exists - return existing cell
-        if let Some(existing) = self.cells.get(&cid) {
-            if let Some(cell) = existing.clone().downcast::<Cell<T>>().ok() {
-                return cell;
-            }
-            // Type mismatch - this shouldn't happen with correct usage
-            // but we handle it by inserting the new value anyway
+        if let Some(existing) = self.get::<T>(&cid) {
+            return existing;
         }
 
-        // Recursively add all nested bond targets to the solvent
-        let value = value.map_bonds(&mut SolventBondMapper { solvent: self });
-
-        // Create and store the cell
+        let value = value.dissolve_in(self);
         let cell = Arc::new(Cell::with_cid(value, cid));
-        self.cells.insert(cid, cell.clone());
+
+        let mut cells = self.cells.write().unwrap();
+        if let Some(existing) = cells.get(&cid) {
+            if let Some(existing_typed) = downcast_cell::<T>(existing.clone()) {
+                return existing_typed;
+            }
+        }
+
+        cells.insert(cid, cell.clone());
         cell
     }
 
-    /// Adds an oxide and returns a resolved bond to it.
-    fn add_and_bond<T: Oxide>(&mut self, value: T) -> Bond<T> {
-        let cell = self.add(value);
-        Bond::from_cell(cell)
+    fn add_and_bond<T: Oxide>(&self, value: T) -> Bond<T> {
+        Bond::from_cell(self.add(value))
     }
 
     /// Gets an oxide by CID, if it exists and has the correct type.
     pub fn get<T: Oxide>(&self, cid: &Cid) -> Option<Arc<Cell<T>>> {
-        let existing = self
-            .cells
-            .get(cid)
-            .and_then(|any| any.clone().downcast::<Cell<T>>().ok());
-        if existing.is_some() {
-            return existing;
+        if let Some(existing) = self.get_erased(cid) {
+            if let Some(cell) = downcast_cell::<T>(existing) {
+                return Some(cell);
+            }
         }
 
         if is_identity_cid(cid) {
@@ -97,41 +115,79 @@ impl Solvent {
 
     /// Checks if an oxide with the given CID exists.
     pub fn contains(&self, cid: &Cid) -> bool {
-        self.cells.contains_key(cid) || is_identity_cid(cid)
+        self.cells.read().unwrap().contains_key(cid) || is_identity_cid(cid)
     }
 
     /// Returns the number of oxides in the solvent.
     pub fn len(&self) -> usize {
-        self.cells.len()
+        self.cells.read().unwrap().len()
     }
 
     /// Returns true if the solvent is empty.
     pub fn is_empty(&self) -> bool {
-        self.cells.is_empty()
+        self.cells.read().unwrap().is_empty()
     }
 
     /// Creates a resolved bond for the given value.
-    ///
-    /// Adds the value (and all nested bonds) to the solvent and returns
-    /// a bond pointing to it.
-    pub fn bond<T: Oxide>(&mut self, value: T) -> Bond<T> {
+    pub fn bond<T: Oxide>(&self, value: T) -> Bond<T> {
         self.add_and_bond(value)
     }
 
-    /// Attempts to resolve an unresolved bond.
-    ///
-    /// If the target exists in the solvent, returns a resolved bond.
-    /// Otherwise returns the original unresolved bond.
-    pub fn resolve<T: Oxide>(&self, bond: &Bond<T>) -> Bond<T> {
+    /// Adds the target of the provided bond into this solvent.
+    pub fn add_bond<T: Oxide>(&self, bond: &Bond<T>) -> Bond<T> {
         match bond {
-            Bond::Resolved(_) => bond.clone(),
             Bond::Unresolved(cid) => {
-                if let Some(cell) = self.get::<T>(cid) {
-                    Bond::Resolved(cell)
+                if let Some(ligation) = self.resolve_ligation_by_cid(cid) {
+                    Bond::Ligation(Box::new(ligation))
+                } else if let Some(cell) = self.get::<T>(cid) {
+                    Bond::Link(cell)
                 } else {
-                    bond.clone()
+                    Bond::Unresolved(*cid)
                 }
             }
+            Bond::Link(cell) => Bond::Link(self.add(cell.value().clone())),
+            Bond::Ligation(ligation) => {
+                let dissolved = ligation.dissolve_in(self);
+                let _ = self.add(dissolved.clone());
+                Bond::Ligation(Box::new(dissolved))
+            }
+        }
+    }
+
+    /// Adds the target of the provided erased bond into this solvent.
+    pub fn add_erased_bond(&self, bond: &ErasedBond) -> ErasedBond {
+        match bond {
+            ErasedBond::Unresolved(cid) => {
+                if let Some(ligation) = self.resolve_ligation_by_cid(cid) {
+                    ErasedBond::Ligation(Box::new(ligation))
+                } else if let Some(cell) = self.get_erased(cid) {
+                    ErasedBond::Link(cell)
+                } else {
+                    ErasedBond::Unresolved(*cid)
+                }
+            }
+            ErasedBond::Link(cell) => ErasedBond::Link(self.add_erased_cell(cell.clone())),
+            ErasedBond::Ligation(ligation) => {
+                let dissolved = ligation.dissolve_in(self);
+                let _ = self.add(dissolved.clone());
+                ErasedBond::Ligation(Box::new(dissolved))
+            }
+        }
+    }
+
+    /// Attempts to resolve an unresolved bond.
+    pub fn resolve<T: Oxide>(&self, bond: &Bond<T>) -> Bond<T> {
+        match bond {
+            Bond::Unresolved(cid) => {
+                if let Some(ligation) = self.resolve_ligation_by_cid(cid) {
+                    Bond::Ligation(Box::new(ligation))
+                } else if let Some(cell) = self.get::<T>(cid) {
+                    Bond::Link(cell)
+                } else {
+                    Bond::Unresolved(*cid)
+                }
+            }
+            Bond::Link(_) | Bond::Ligation(_) => bond.clone(),
         }
     }
 
@@ -146,69 +202,71 @@ impl Solvent {
     ) -> Result<(Cid, Cid), S::Error> {
         let store = identity_overlay(store);
         let mut visited = HashSet::new();
-        debug!("Persisting cell {:?}", cell.cid());
 
-        // Persist the schema tree first
-        // Use a temporary solvent to resolve schema bonds
-        debug!("aaa {:?}", cell.value());
-        let mut schema_solvent = Solvent::new();
-        debug!("bbb");
-        let schema = T::schema();
-        debug!("ccc");
-        let schema_cell = schema_solvent.add(schema);
-        debug!("ddd");
+        // Persist schema tree using a temporary solvent.
+        let schemas = Solvent::new();
+        let schema_cell = schemas.add(T::schema());
         let schema_cid = schema_cell.cid();
-        debug!("eee");
 
-        // Persist all schemas from the solvent
-        for (cid, any_cell) in &schema_solvent.cells {
-            if let Some(structure_cell) = any_cell.clone().downcast::<Cell<Structure>>().ok() {
-                debug!("Serializing {:?}", cid);
-                let bytes = structure_cell.value().to_bytes();
-                debug!("Putting {:?}", cid);
-                store.put(cid, &bytes)?;
-                visited.insert(*cid);
+        for schema_erased in schemas.all_cells() {
+            let cid = schema_erased.cid();
+            if !visited.insert(cid) {
+                continue;
             }
+            store.put(&cid, &schema_erased.to_bytes())?;
         }
 
-        // Persist the value and all bond dependencies
-        self.persist_value(cell.value(), &store, &mut visited)?;
+        // Persist value graph from root.
+        self.persist_typed_value(cell.value(), &store, &mut visited)?;
 
         Ok((cell.cid(), schema_cid))
     }
 
-    /// Persists a value and all its bond dependencies.
-    /// Uses dependency-first order: children are stored before parents.
-    fn persist_value<T: Oxide, S: Store>(
+    fn persist_typed_value<T: Oxide, S: Store>(
         &self,
         value: &T,
         store: &S,
         visited: &mut HashSet<Cid>,
     ) -> Result<(), S::Error> {
         let cid = value.compute_cid();
-        debug!("Persisting value {:?}", cid);
         if visited.contains(&cid) {
             return Ok(());
         }
         visited.insert(cid);
 
-        // First persist all bond dependencies (children before parent)
-        let mut mapper = PersistingMapper {
-            solvent: self,
-            store,
-            visited,
-            error: None,
-        };
-        value.map_bonds(&mut mapper);
-
-        if let Some(e) = mapper.error {
-            return Err(e);
+        let mut collector = CidCollector::default();
+        value.visit_bonds(&mut collector);
+        for dep in collector.cids {
+            if let Some(dep_cell) = self.get_erased(&dep) {
+                self.persist_erased_cell(dep_cell, store, visited)?;
+            }
         }
 
-        // Then persist this value
-        let bytes = value.to_bytes();
-        store.put(&cid, &bytes)?;
+        store.put(&cid, &value.to_bytes())?;
+        Ok(())
+    }
 
+    fn persist_erased_cell<S: Store>(
+        &self,
+        cell: Arc<dyn ErasedCell>,
+        store: &S,
+        visited: &mut HashSet<Cid>,
+    ) -> Result<(), S::Error> {
+        let cid = cell.cid();
+        if visited.contains(&cid) {
+            return Ok(());
+        }
+        visited.insert(cid);
+
+        let mut collector = CidCollector::default();
+        cell.visit_bonds(&mut collector);
+        for dep in collector.cids {
+            if let Some(dep_cell) = self.get_erased(&dep) {
+                self.persist_erased_cell(dep_cell, store, visited)?;
+            }
+        }
+
+        store.put(&cid, &cell.to_bytes())?;
         Ok(())
     }
 }
@@ -219,66 +277,18 @@ impl Default for Solvent {
     }
 }
 
-/// Internal bond mapper that recursively adds bond targets to the solvent.
-struct SolventBondMapper<'a> {
-    solvent: &'a mut Solvent,
+fn downcast_cell<T: Oxide>(cell: Arc<dyn ErasedCell>) -> Option<Arc<Cell<T>>> {
+    cell.into_any_arc().downcast::<Cell<T>>().ok()
 }
 
-impl BondMapper for SolventBondMapper<'_> {
-    fn map_bond<T: Oxide>(&mut self, bond: Bond<T>) -> Bond<T> {
-        match bond {
-            Bond::Unresolved(cid) => {
-                // Try to resolve by looking up in the solvent
-                if let Some(cell) = self.solvent.get::<T>(&cid) {
-                    Bond::from_cell(cell)
-                } else {
-                    // Not found - keep as unresolved
-                    Bond::Unresolved(cid)
-                }
-            }
-            Bond::Resolved(cell) => {
-                // Resolved bond - recursively add the value to the solvent
-                // The value's bonds will also be recursively processed
-                let value = cell.value().clone();
-                self.solvent.add_and_bond(value)
-            }
-        }
-    }
+#[derive(Default)]
+struct CidCollector {
+    cids: Vec<Cid>,
 }
 
-/// Bond mapper that persists bond targets to a store.
-struct PersistingMapper<'a, S: Store> {
-    solvent: &'a Solvent,
-    store: &'a S,
-    visited: &'a mut HashSet<Cid>,
-    error: Option<S::Error>,
-}
-
-impl<S: Store> BondMapper for PersistingMapper<'_, S> {
-    fn map_bond<T: Oxide>(&mut self, bond: Bond<T>) -> Bond<T> {
-        if self.error.is_some() {
-            return bond;
-        }
-
-        let cid = bond.cid();
-        if self.visited.contains(&cid) {
-            return bond;
-        }
-        self.visited.insert(cid);
-
-        // Get the cell from solvent and persist it
-        if let Some(cell) = self.solvent.get::<T>(&cid) {
-            let bytes = cell.value().to_bytes();
-            if let Err(e) = self.store.put(&cid, &bytes) {
-                self.error = Some(e);
-                return bond;
-            }
-
-            // Recursively persist nested bonds
-            cell.value().map_bonds(self);
-        }
-
-        bond
+impl BondVisitor for CidCollector {
+    fn visit_bond(&mut self, cid: &Cid) {
+        self.cids.push(*cid);
     }
 }
 
@@ -290,27 +300,25 @@ mod tests {
 
     #[test]
     fn solvent_add_and_get() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
         let value = "hello".to_string();
         let cell = solvent.add(value.clone());
 
         assert_eq!(cell.value(), &value);
         assert_eq!(solvent.len(), 1);
 
-        // Get by CID
         let retrieved = solvent.get::<String>(&cell.cid()).unwrap();
         assert_eq!(retrieved.value(), &value);
     }
 
     #[test]
     fn solvent_deduplication() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
         let value = "duplicate".to_string();
 
         let cell1 = solvent.add(value.clone());
         let cell2 = solvent.add(value.clone());
 
-        // Same CID, same cell (Arc pointer equality)
         assert_eq!(cell1.cid(), cell2.cid());
         assert!(Arc::ptr_eq(&cell1, &cell2));
         assert_eq!(solvent.len(), 1);
@@ -318,7 +326,7 @@ mod tests {
 
     #[test]
     fn solvent_different_values() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         solvent.add("one".to_string());
         solvent.add("two".to_string());
@@ -329,7 +337,7 @@ mod tests {
 
     #[test]
     fn solvent_bond_creation() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
         let bond = solvent.bond("bonded value".to_string());
 
         assert!(bond.is_resolved());
@@ -338,7 +346,7 @@ mod tests {
 
     #[test]
     fn solvent_resolve_existing() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
         let cell = solvent.add("target".to_string());
         let cid = cell.cid();
 
@@ -346,7 +354,7 @@ mod tests {
         assert!(!unresolved.is_resolved());
 
         let resolved = solvent.resolve(&unresolved);
-        assert!(resolved.is_resolved());
+        assert!(matches!(resolved, Bond::Link(_)));
         assert_eq!(resolved.value(), Some(&"target".to_string()));
     }
 
@@ -361,31 +369,27 @@ mod tests {
     }
 
     #[test]
-    fn solvent_resolve_identity_virtual_cell() {
+    fn solvent_resolve_identity_virtual_ligation() {
         let solvent = Solvent::new();
         let slot_cid = crate::slot_cid(2);
-        let unresolved: Bond<crate::Ligation> = Bond::from_cid(slot_cid);
+        let unresolved: Bond<String> = Bond::from_cid(slot_cid);
 
         let resolved = solvent.resolve(&unresolved);
-        assert!(resolved.is_resolved());
-        assert_eq!(resolved.cid(), slot_cid);
-        assert_eq!(resolved.value(), Some(&crate::Ligation::Slot(2)));
+        assert!(matches!(
+            resolved,
+            Bond::Ligation(ref ligation) if **ligation == crate::Ligation::Slot(2)
+        ));
     }
 
     #[test]
     fn solvent_recursive_add_structure() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
-        // Create a nested structure: Sequence(Unicode)
         let nested = Structure::sequence(Structure::Unicode);
-
-        // Add it to the solvent
         let cell = solvent.add(nested);
 
-        // Should have 2 entries: the Sequence and the Unicode inside
         assert_eq!(solvent.len(), 2);
 
-        // The inner Unicode should also be in the solvent
         if let Structure::Sequence(inner_bond) = cell.value() {
             assert!(inner_bond.is_resolved());
             let inner_cid = inner_bond.cid();
@@ -397,29 +401,25 @@ mod tests {
 
     #[test]
     fn solvent_deduplication_nested() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
-        // Create two structures that share the same inner type
         let s1 = Structure::sequence(Structure::Unicode);
         let s2 = Structure::sequence(Structure::Unicode);
 
         solvent.add(s1);
         solvent.add(s2);
 
-        // Should have 2 entries: one Sequence and one Unicode (shared)
         assert_eq!(solvent.len(), 2);
     }
 
     #[test]
     fn solvent_deep_nesting() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
-        // Create a deeply nested structure
         let deep = Structure::sequence(Structure::sequence(Structure::sequence(Structure::Bool)));
 
         solvent.add(deep);
 
-        // Should have 4 entries: 3 Sequences and 1 Bool
         assert_eq!(solvent.len(), 4);
     }
 }

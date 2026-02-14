@@ -13,7 +13,7 @@ struct LinkedNode {
 
 #[test]
 fn linked_list_single() {
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     let node = LinkedNode {
         value: "only node".to_string(),
@@ -28,7 +28,7 @@ fn linked_list_single() {
 
 #[test]
 fn linked_list_chain() {
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     // Create a chain: node3 -> node2 -> node1
     let node1 = LinkedNode {
@@ -66,7 +66,7 @@ fn linked_list_chain() {
 
 #[test]
 fn deduplication_in_dag() {
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     // Create a shared node
     let shared = LinkedNode {
@@ -100,7 +100,7 @@ fn deduplication_in_dag() {
 
 #[test]
 fn bond_serialization_preserves_reference() {
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     let target = LinkedNode {
         value: "target".to_string(),
@@ -133,7 +133,7 @@ struct TreeNode {
 
 #[test]
 fn tree_structure() {
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     // Build a tree:
     //       root
@@ -186,7 +186,7 @@ fn tree_structure() {
 
 #[test]
 fn collect_all_keys() {
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     let leaf = TreeNode {
         label: "leaf".to_string(),
@@ -230,7 +230,7 @@ struct SimplePoint {
 
 #[test]
 fn oxide_attribute_macro() {
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
     let point = SimplePoint { x: 1.0, y: 2.0 };
     let cell = solvent.add(point);
 

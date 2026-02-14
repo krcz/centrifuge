@@ -12,7 +12,7 @@
 //! ```
 //! use polyepoxide_core::{Solvent, Bond};
 //!
-//! let mut solvent = Solvent::new();
+//! let solvent = Solvent::new();
 //!
 //! // Add values to the solvent
 //! let cell = solvent.add("hello world".to_string());
@@ -34,6 +34,7 @@
 mod async_store;
 mod bond;
 mod cell;
+mod cursor;
 mod oxide;
 mod reflexive;
 mod schema;
@@ -44,13 +45,15 @@ mod sync;
 pub mod traverse;
 
 pub use async_store::{AsyncStore, IdentityAsyncStoreOverlay, identity_overlay_async};
-pub use bond::Bond;
-pub use cell::Cell;
+pub use bond::{Bond, ErasedBond};
+pub use cell::{Cell, ErasedCell};
 pub use cid::Cid;
-pub use oxide::{BondMapper, BondVisitor, ByteString, Oxide, compute_cid};
+pub use cursor::{Cursor, CursorError};
+pub use oxide::{BondVisitor, ByteString, Oxide, compute_cid};
 pub use reflexive::{
     Ligation, MULTIHASH_IDENTITY, POLYEPOXIDE_REFLEXIVE_CODEC, is_identity_cid, is_reflexive_cid,
-    ligase_cid, make_identity_cid, resolve_ligation, resolve_reflexive_with_store, slot_cid,
+    ligase_cid, ligation_cid, make_identity_cid, resolve_ligation, resolve_ligation_bond,
+    resolve_reflexive_with_store, slot_cid,
 };
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};

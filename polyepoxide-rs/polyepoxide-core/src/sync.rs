@@ -485,7 +485,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Bond, Ligation, MemoryStore, Oxide, Solvent, Store, ligase_cid, slot_cid};
+    use crate::{
+        Bond, ErasedBond, Ligation, MemoryStore, Oxide, Solvent, Store, ligase_cid, slot_cid,
+    };
     use ipld_core::ipld::Ipld;
     use std::sync::Arc;
 
@@ -532,7 +534,7 @@ mod tests {
     async fn pull_simple_record() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         let author = Author {
             name: "Jane Doe".into(),
@@ -552,7 +554,7 @@ mod tests {
     async fn pull_with_single_bond() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         // Create author
         let author = Author {
@@ -584,7 +586,7 @@ mod tests {
     async fn pull_with_nested_bonds() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         // Create authors
         let author1 = Author {
@@ -647,7 +649,7 @@ mod tests {
     async fn pull_with_shared_bonds() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         // Create a shared author referenced by multiple chapters
         let shared_author = Author {
@@ -702,7 +704,7 @@ mod tests {
     async fn pull_incremental() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         let author = Author {
             name: "Already Synced".into(),
@@ -724,7 +726,7 @@ mod tests {
     async fn push_with_bonds() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         let author = Author {
             name: "Push Author".into(),
@@ -751,7 +753,7 @@ mod tests {
     async fn pull_reflexive_ligase_with_slots() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         let ring_a = Ring {
             name: "A".into(),
@@ -767,7 +769,10 @@ mod tests {
         source.put(&ring_a_cell.cid(), &ring_a.to_bytes()).unwrap();
         source.put(&ring_b_cell.cid(), &ring_b.to_bytes()).unwrap();
 
-        let ligase_args = vec![ring_a_cell.cid(), ring_b_cell.cid()];
+        let ligase_args = vec![
+            ErasedBond::from_cid(ring_a_cell.cid()),
+            ErasedBond::from_cid(ring_b_cell.cid()),
+        ];
         let ligase_ref = ligase_cid(ligase_args.clone());
         source
             .put(&ligase_ref, &Ligation::Ligase(ligase_args).to_bytes())
@@ -800,7 +805,7 @@ mod tests {
     async fn pull_ordered_map_list_pairs_traverses_key_and_value() {
         let source = MemoryStore::new();
         let dest = MemoryStore::new();
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         let key_author = Author {
             name: "Key Author".into(),
@@ -819,7 +824,7 @@ mod tests {
             key: Bond::new(Structure::bond(Author::schema())),
             value: Bond::new(Structure::bond(Author::schema())),
         };
-        let mut schema_solvent = Solvent::new();
+        let schema_solvent = Solvent::new();
         let schema_cell = schema_solvent.add(ordered_schema);
         let (root_schema_cid, _structure_schema_cid) =
             schema_solvent.persist_cell(&schema_cell, &source).unwrap();

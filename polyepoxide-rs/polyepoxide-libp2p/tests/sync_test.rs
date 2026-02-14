@@ -129,7 +129,7 @@ async fn sync_simple_value_over_memory_transport() {
     let store2 = Arc::new(MemoryStore::new());
 
     // Populate store1 with a complex value using Solvent
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
     let author = Author {
         name: "Jane Doe".into(),
         bio: "A prolific writer".into(),
@@ -206,7 +206,7 @@ async fn sync_simple_value_over_memory_transport() {
 async fn sync_with_bond_over_memory_transport() {
     // This test demonstrates the full sync flow with nested bonded values
     let store = MemoryStore::new();
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     // Create author
     let author = Author {
@@ -234,7 +234,7 @@ async fn sync_with_bond_over_memory_transport() {
 async fn sync_with_nested_bonds() {
     // Test deeply nested bonds: Book -> Chapters -> Authors
     let store = MemoryStore::new();
-    let mut solvent = Solvent::new();
+    let solvent = Solvent::new();
 
     // Create authors
     let author1 = Author {

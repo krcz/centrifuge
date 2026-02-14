@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn conversation_chain() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         let msg1 = Message {
             content: MessageContent::User(vec![ContentBlock::Text("Hi".to_string())]),
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn branching_conversation() {
-        let mut solvent = Solvent::new();
+        let solvent = Solvent::new();
 
         // Common ancestor
         let base = Message {
