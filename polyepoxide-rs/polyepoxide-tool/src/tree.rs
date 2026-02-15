@@ -6,7 +6,7 @@ use std::sync::Arc;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use polyepoxide_core::traverse::parse_to_ipld;
-use polyepoxide_core::{Cell, Oxide, Solvent, Store, Structure};
+use polyepoxide_core::{key_from_cid, Cell, Oxide, Solvent, Store, Structure};
 use tui_tree_widget::TreeItem;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -128,7 +128,7 @@ impl TreeModel {
 
         let bytes = self
             .store
-            .get(&cid)?
+            .get(&key_from_cid(&cid))?
             .ok_or_else(|| format!("schema not found: {}", cid))?;
 
         let schema: Structure = serde_ipld_dagcbor::from_slice(&bytes)?;
@@ -187,7 +187,7 @@ impl TreeModel {
 
         let bytes = self
             .store
-            .get(&self.root_cid)?
+            .get(&key_from_cid(&self.root_cid))?
             .ok_or_else(|| format!("value not found: {}", self.root_cid))?;
 
         let ipld = parse_to_ipld(&bytes)?;
@@ -338,7 +338,8 @@ impl TreeModel {
                         context,
                     )?;
                     if let Some((resolved_cid, next_scope)) = resolved {
-                        if let Ok(Some(target_bytes)) = self.store.get(&resolved_cid) {
+                        if let Ok(Some(target_bytes)) = self.store.get(&key_from_cid(&resolved_cid))
+                        {
                             if let Ok(target_ipld) = parse_to_ipld(&target_bytes) {
                                 if let Some(inner_schema) = inner.value() {
                                     let nested = self.collect_children(

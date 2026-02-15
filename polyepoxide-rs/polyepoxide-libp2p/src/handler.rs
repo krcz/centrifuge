@@ -7,15 +7,15 @@ use crate::protocol::{Request, Response};
 /// Handle an incoming request against a local store.
 pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Response {
     match request {
-        Request::Get { cids } => match store.async_get_many(&cids).await {
+        Request::Get { keys } => match store.async_get_many(&keys).await {
             Ok(results) => {
                 let mut found = Vec::new();
                 let mut missing = Vec::new();
 
-                for (cid, result) in cids.into_iter().zip(results) {
+                for (key, result) in keys.into_iter().zip(results) {
                     match result {
-                        Some(data) => found.push((cid, data)),
-                        None => missing.push(cid),
+                        Some(data) => found.push((key, data)),
+                        None => missing.push(key),
                     }
                 }
 
@@ -26,7 +26,7 @@ pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Respo
             },
         },
 
-        Request::Has { cids } => match store.async_has_many(&cids).await {
+        Request::Has { keys } => match store.async_has_many(&keys).await {
             Ok(present) => Response::Has { present },
             Err(e) => Response::Error {
                 message: e.to_string(),
@@ -34,10 +34,13 @@ pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Respo
         },
 
         Request::Put { nodes } => {
-            let refs: Vec<_> = nodes.iter().map(|(k, v)| (k, v.as_slice())).collect();
+            let refs: Vec<_> = nodes
+                .iter()
+                .map(|(k, v)| (k.as_slice(), v.as_slice()))
+                .collect();
             match store.async_put_many(&refs).await {
                 Ok(()) => Response::Stored {
-                    cids: nodes.into_iter().map(|(k, _)| k).collect(),
+                    keys: nodes.into_iter().map(|(k, _)| k).collect(),
                 },
                 Err(e) => Response::Error {
                     message: e.to_string(),
@@ -50,19 +53,26 @@ pub async fn handle_request<S: AsyncStore>(store: &S, request: Request) -> Respo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polyepoxide_core::{MemoryStore, Store, compute_cid};
+    use polyepoxide_core::{MemoryStore, Store, compute_cid, key_from_cid};
 
     #[tokio::test]
     async fn handle_get_found() {
         let store = MemoryStore::new();
         let cid = compute_cid(b"test");
-        store.put(&cid, b"data").unwrap();
+        let key = key_from_cid(&cid);
+        store.put(&key, b"data").unwrap();
 
-        let response = handle_request(&store, Request::Get { cids: vec![cid] }).await;
+        let response = handle_request(
+            &store,
+            Request::Get {
+                keys: vec![key.clone()],
+            },
+        )
+        .await;
 
         if let Response::Nodes { found, missing } = response {
             assert_eq!(found.len(), 1);
-            assert_eq!(found[0].0, cid);
+            assert_eq!(found[0].0, key);
             assert_eq!(found[0].1, b"data");
             assert!(missing.is_empty());
         } else {
@@ -74,13 +84,20 @@ mod tests {
     async fn handle_get_missing() {
         let store = MemoryStore::new();
         let cid = compute_cid(b"missing");
+        let key = key_from_cid(&cid);
 
-        let response = handle_request(&store, Request::Get { cids: vec![cid] }).await;
+        let response = handle_request(
+            &store,
+            Request::Get {
+                keys: vec![key.clone()],
+            },
+        )
+        .await;
 
         if let Response::Nodes { found, missing } = response {
             assert!(found.is_empty());
             assert_eq!(missing.len(), 1);
-            assert_eq!(missing[0], cid);
+            assert_eq!(missing[0], key);
         } else {
             panic!("Expected Nodes response");
         }
@@ -91,12 +108,14 @@ mod tests {
         let store = MemoryStore::new();
         let cid1 = compute_cid(b"exists");
         let cid2 = compute_cid(b"missing");
-        store.put(&cid1, b"data").unwrap();
+        let key1 = key_from_cid(&cid1);
+        let key2 = key_from_cid(&cid2);
+        store.put(&key1, b"data").unwrap();
 
         let response = handle_request(
             &store,
             Request::Has {
-                cids: vec![cid1, cid2],
+                keys: vec![key1, key2],
             },
         )
         .await;
@@ -112,22 +131,23 @@ mod tests {
     async fn handle_put() {
         let store = MemoryStore::new();
         let cid = compute_cid(b"new");
+        let key = key_from_cid(&cid);
 
         let response = handle_request(
             &store,
             Request::Put {
-                nodes: vec![(cid, b"value".to_vec())],
+                nodes: vec![(key.clone(), b"value".to_vec())],
             },
         )
         .await;
 
-        if let Response::Stored { cids } = response {
-            assert_eq!(cids, vec![cid]);
+        if let Response::Stored { keys } = response {
+            assert_eq!(keys, vec![key.clone()]);
         } else {
             panic!("Expected Stored response");
         }
 
         // Verify it was actually stored
-        assert_eq!(store.get(&cid).unwrap(), Some(b"value".to_vec()));
+        assert_eq!(store.get(&key).unwrap(), Some(b"value".to_vec()));
     }
 }

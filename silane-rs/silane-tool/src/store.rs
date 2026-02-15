@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use cid::Cid;
 use polyepoxide_core::{Solvent, Store};
 use polyepoxide_fjall::FjallStore;
 use polyepoxide_rocks::RocksStore;
@@ -61,24 +60,24 @@ impl AnyStore {
 impl Store for AnyStore {
     type Error = AnyStoreError;
 
-    fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
         match self {
-            AnyStore::Fjall(s) => s.get(cid).map_err(Into::into),
-            AnyStore::Rocks(s) => s.get(cid).map_err(Into::into),
+            AnyStore::Fjall(s) => s.get(key).map_err(Into::into),
+            AnyStore::Rocks(s) => s.get(key).map_err(Into::into),
         }
     }
 
-    fn put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), Self::Error> {
         match self {
-            AnyStore::Fjall(s) => s.put(cid, value).map_err(Into::into),
-            AnyStore::Rocks(s) => s.put(cid, value).map_err(Into::into),
+            AnyStore::Fjall(s) => s.put(key, value).map_err(Into::into),
+            AnyStore::Rocks(s) => s.put(key, value).map_err(Into::into),
         }
     }
 
-    fn has(&self, cid: &Cid) -> Result<bool, Self::Error> {
+    fn has(&self, key: &[u8]) -> Result<bool, Self::Error> {
         match self {
-            AnyStore::Fjall(s) => s.has(cid).map_err(Into::into),
-            AnyStore::Rocks(s) => s.has(cid).map_err(Into::into),
+            AnyStore::Fjall(s) => s.has(key).map_err(Into::into),
+            AnyStore::Rocks(s) => s.has(key).map_err(Into::into),
         }
     }
 }

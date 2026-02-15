@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use crate::async_store::identity_overlay_async;
 use crate::reflexive::parse_ligation_bytes;
+use crate::store::key_from_cid;
 use crate::{
     AsyncStore, Cell, Solvent, Structure, is_reflexive_cid, reflexive_to_data_cid, resolve_ligation,
 };
@@ -111,7 +112,8 @@ where
     }
 
     // If dest already has this CID, all dependencies are present (invariant)
-    if dest.async_has(&value_cid).await.map_err(SyncError::Dest)? {
+    let value_key = key_from_cid(&value_cid);
+    if dest.async_has(&value_key).await.map_err(SyncError::Dest)? {
         return Ok(());
     }
 
@@ -123,8 +125,9 @@ where
     };
 
     // Fetch value from source
+    let value_key = key_from_cid(&value_cid);
     let value_bytes = source
-        .async_get(&value_cid)
+        .async_get(&value_key)
         .await
         .map_err(SyncError::Source)?
         .ok_or(SyncError::NotFound(value_cid))?;
@@ -148,7 +151,7 @@ where
     .await?;
 
     // Now store this value (all dependencies are already in dest)
-    dest.async_put(&value_cid, &value_bytes)
+    dest.async_put(&value_key, &value_bytes)
         .await
         .map_err(SyncError::Dest)?;
     transferred.push(value_cid);
@@ -465,14 +468,15 @@ where
         parse_ligation_bytes(cid.hash().digest())
     } else {
         let data_cid = reflexive_to_data_cid(&cid);
+        let data_key = key_from_cid(&data_cid);
         let bytes = source
-            .async_get(&data_cid)
+            .async_get(&data_key)
             .await
             .map_err(SyncError::Source)?
             .ok_or(SyncError::NotFound(data_cid))?;
 
-        if !dest.async_has(&data_cid).await.map_err(SyncError::Dest)? {
-            dest.async_put(&data_cid, &bytes)
+        if !dest.async_has(&data_key).await.map_err(SyncError::Dest)? {
+            dest.async_put(&data_key, &bytes)
                 .await
                 .map_err(SyncError::Dest)?;
             transferred.push(data_cid);
@@ -503,18 +507,19 @@ where
     }
 
     // Check if dest has it
-    let dest_has = dest.async_has(&cid).await.map_err(SyncError::Dest)?;
+    let key = key_from_cid(&cid);
+    let dest_has = dest.async_has(&key).await.map_err(SyncError::Dest)?;
 
     // Fetch from source
     let bytes = source
-        .async_get(&cid)
+        .async_get(&key)
         .await
         .map_err(SyncError::Source)?
         .ok_or(SyncError::NotFound(cid))?;
 
     // Store in dest if missing
     if !dest_has {
-        dest.async_put(&cid, &bytes)
+        dest.async_put(&key, &bytes)
             .await
             .map_err(SyncError::Dest)?;
         transferred.push(cid);
@@ -548,7 +553,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        Bond, ErasedBond, Ligation, MemoryStore, Oxide, Solvent, Store, ligase_cid, slot_cid,
+        Bond, ErasedBond, Ligation, MemoryStore, Oxide, Solvent, Store, key_from_cid, ligase_cid,
+        slot_cid,
     };
     use ipld_core::ipld::Ipld;
     use std::sync::Arc;
@@ -608,8 +614,8 @@ mod tests {
         let transferred = pull(&source, &dest, value_cid, schema_cid).await.unwrap();
 
         assert!(!transferred.is_empty());
-        assert!(dest.has(&value_cid).unwrap());
-        assert!(dest.has(&schema_cid).unwrap());
+        assert!(dest.has(&key_from_cid(&value_cid)).unwrap());
+        assert!(dest.has(&key_from_cid(&schema_cid)).unwrap());
     }
 
     #[tokio::test]
@@ -640,8 +646,8 @@ mod tests {
         // Should have transferred chapter and author
         assert!(transferred.contains(&chapter_cid));
         assert!(transferred.contains(&author_cid));
-        assert!(dest.has(&chapter_cid).unwrap());
-        assert!(dest.has(&author_cid).unwrap());
+        assert!(dest.has(&key_from_cid(&chapter_cid)).unwrap());
+        assert!(dest.has(&key_from_cid(&author_cid)).unwrap());
     }
 
     #[tokio::test]
@@ -700,11 +706,11 @@ mod tests {
         assert!(transferred.contains(&author2_cell.cid()));
 
         // Verify all are in dest
-        assert!(dest.has(&book_cid).unwrap());
-        assert!(dest.has(&chapter1_cell.cid()).unwrap());
-        assert!(dest.has(&chapter2_cell.cid()).unwrap());
-        assert!(dest.has(&author1_cell.cid()).unwrap());
-        assert!(dest.has(&author2_cell.cid()).unwrap());
+        assert!(dest.has(&key_from_cid(&book_cid)).unwrap());
+        assert!(dest.has(&key_from_cid(&chapter1_cell.cid())).unwrap());
+        assert!(dest.has(&key_from_cid(&chapter2_cell.cid())).unwrap());
+        assert!(dest.has(&key_from_cid(&author1_cell.cid())).unwrap());
+        assert!(dest.has(&key_from_cid(&author2_cell.cid())).unwrap());
     }
 
     #[tokio::test]
@@ -756,10 +762,10 @@ mod tests {
         assert_eq!(author_count, 1);
 
         // All values should be in dest
-        assert!(dest.has(&book_cid).unwrap());
-        assert!(dest.has(&chapter1_cell.cid()).unwrap());
-        assert!(dest.has(&chapter2_cell.cid()).unwrap());
-        assert!(dest.has(&author_cell.cid()).unwrap());
+        assert!(dest.has(&key_from_cid(&book_cid)).unwrap());
+        assert!(dest.has(&key_from_cid(&chapter1_cell.cid())).unwrap());
+        assert!(dest.has(&key_from_cid(&chapter2_cell.cid())).unwrap());
+        assert!(dest.has(&key_from_cid(&author_cell.cid())).unwrap());
     }
 
     #[tokio::test]
@@ -807,8 +813,8 @@ mod tests {
         let transferred = push(&source, &dest, chapter_cid, schema_cid).await.unwrap();
 
         assert!(!transferred.is_empty());
-        assert!(dest.has(&chapter_cid).unwrap());
-        assert!(dest.has(&author_cell.cid()).unwrap());
+        assert!(dest.has(&key_from_cid(&chapter_cid)).unwrap());
+        assert!(dest.has(&key_from_cid(&author_cell.cid())).unwrap());
     }
 
     #[tokio::test]
@@ -828,8 +834,12 @@ mod tests {
         let ring_a_cell = solvent.add(ring_a.clone());
         let ring_b_cell = solvent.add(ring_b.clone());
 
-        source.put(&ring_a_cell.cid(), &ring_a.to_bytes()).unwrap();
-        source.put(&ring_b_cell.cid(), &ring_b.to_bytes()).unwrap();
+        source
+            .put(&key_from_cid(&ring_a_cell.cid()), &ring_a.to_bytes())
+            .unwrap();
+        source
+            .put(&key_from_cid(&ring_b_cell.cid()), &ring_b.to_bytes())
+            .unwrap();
 
         let ligase_args = vec![
             ErasedBond::from_cid(ring_a_cell.cid()),
@@ -838,7 +848,10 @@ mod tests {
         let ligase_ref = ligase_cid(ligase_args.clone());
         let ligase_data_cid = reflexive_to_data_cid(&ligase_ref);
         source
-            .put(&ligase_data_cid, &Ligation::Ligase(ligase_args).to_bytes())
+            .put(
+                &key_from_cid(&ligase_data_cid),
+                &Ligation::Ligase(ligase_args).to_bytes(),
+            )
             .unwrap();
 
         let root = Root {
@@ -858,10 +871,10 @@ mod tests {
         assert!(!transferred.contains(&slot_cid(0)));
         assert!(!transferred.contains(&slot_cid(1)));
 
-        assert!(dest.has(&root_cid).unwrap());
-        assert!(dest.has(&ligase_data_cid).unwrap());
-        assert!(dest.has(&ring_a_cell.cid()).unwrap());
-        assert!(dest.has(&ring_b_cell.cid()).unwrap());
+        assert!(dest.has(&key_from_cid(&root_cid)).unwrap());
+        assert!(dest.has(&key_from_cid(&ligase_data_cid)).unwrap());
+        assert!(dest.has(&key_from_cid(&ring_a_cell.cid())).unwrap());
+        assert!(dest.has(&key_from_cid(&ring_b_cell.cid())).unwrap());
     }
 
     #[tokio::test]
@@ -899,7 +912,7 @@ mod tests {
         let root_ipld = Ipld::List(vec![entry]);
         let root_bytes = serde_ipld_dagcbor::to_vec(&root_ipld).unwrap();
         let root_cid = crate::compute_cid(&root_bytes);
-        source.put(&root_cid, &root_bytes).unwrap();
+        source.put(&key_from_cid(&root_cid), &root_bytes).unwrap();
 
         let transferred = pull(&source, &dest, root_cid, root_schema_cid)
             .await
@@ -908,7 +921,7 @@ mod tests {
         assert!(transferred.contains(&root_cid));
         assert!(transferred.contains(&key_author_cell.cid()));
         assert!(transferred.contains(&value_author_cell.cid()));
-        assert!(dest.has(&key_author_cell.cid()).unwrap());
-        assert!(dest.has(&value_author_cell.cid()).unwrap());
+        assert!(dest.has(&key_from_cid(&key_author_cell.cid())).unwrap());
+        assert!(dest.has(&key_from_cid(&value_author_cell.cid())).unwrap());
     }
 }

@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use cid::Cid;
 use polyepoxide_core::Store;
 use rocksdb::{DB, Options};
 use thiserror::Error;
@@ -31,24 +30,24 @@ impl RocksStore {
 impl Store for RocksStore {
     type Error = RocksError;
 
-    fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
-        Ok(self.db.get(cid.to_bytes())?)
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(self.db.get(key)?)
     }
 
-    fn put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
-        self.db.put(cid.to_bytes(), value)?;
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), Self::Error> {
+        self.db.put(key, value)?;
         Ok(())
     }
 
-    fn has(&self, cid: &Cid) -> Result<bool, Self::Error> {
-        Ok(self.db.get_pinned(cid.to_bytes())?.is_some())
+    fn has(&self, key: &[u8]) -> Result<bool, Self::Error> {
+        Ok(self.db.get_pinned(key)?.is_some())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polyepoxide_core::compute_cid;
+    use polyepoxide_core::{POLYEPOXIDE_REFLEXIVE_CODEC, compute_cid, key_from_cid, with_codec};
     use tempfile::TempDir;
 
     fn temp_store() -> (RocksStore, TempDir) {
@@ -61,10 +60,11 @@ mod tests {
     fn put_get() {
         let (store, _dir) = temp_store();
         let cid = compute_cid(b"test");
+        let key = key_from_cid(&cid);
         let value = b"hello world";
 
-        store.put(&cid, value).unwrap();
-        let retrieved = store.get(&cid).unwrap();
+        store.put(&key, value).unwrap();
+        let retrieved = store.get(&key).unwrap();
 
         assert_eq!(retrieved, Some(value.to_vec()));
     }
@@ -73,8 +73,9 @@ mod tests {
     fn get_missing() {
         let (store, _dir) = temp_store();
         let cid = compute_cid(b"nonexistent");
+        let key = key_from_cid(&cid);
 
-        let retrieved = store.get(&cid).unwrap();
+        let retrieved = store.get(&key).unwrap();
 
         assert_eq!(retrieved, None);
     }
@@ -83,29 +84,44 @@ mod tests {
     fn has() {
         let (store, _dir) = temp_store();
         let cid = compute_cid(b"test");
+        let key = key_from_cid(&cid);
 
-        assert!(!store.has(&cid).unwrap());
+        assert!(!store.has(&key).unwrap());
 
-        store.put(&cid, b"value").unwrap();
+        store.put(&key, b"value").unwrap();
 
-        assert!(store.has(&cid).unwrap());
+        assert!(store.has(&key).unwrap());
     }
 
     #[test]
     fn persistence() {
         let dir = TempDir::new().unwrap();
         let cid = compute_cid(b"persistent");
+        let key = key_from_cid(&cid);
         let value = b"data survives restart";
 
         {
             let store = RocksStore::open(dir.path()).unwrap();
-            store.put(&cid, value).unwrap();
+            store.put(&key, value).unwrap();
         }
 
         {
             let store = RocksStore::open(dir.path()).unwrap();
-            let retrieved = store.get(&cid).unwrap();
+            let retrieved = store.get(&key).unwrap();
             assert_eq!(retrieved, Some(value.to_vec()));
         }
+    }
+
+    #[test]
+    fn multihash_keying_across_codecs() {
+        let (store, _dir) = temp_store();
+        let dag_cbor_cid = compute_cid(b"same multihash");
+        let reflexive_cid = with_codec(&dag_cbor_cid, POLYEPOXIDE_REFLEXIVE_CODEC);
+        let dag_key = key_from_cid(&dag_cbor_cid);
+        let reflexive_key = key_from_cid(&reflexive_cid);
+
+        store.put(&dag_key, b"hello").unwrap();
+        assert_eq!(store.get(&reflexive_key).unwrap(), Some(b"hello".to_vec()));
+        assert!(store.has(&reflexive_key).unwrap());
     }
 }

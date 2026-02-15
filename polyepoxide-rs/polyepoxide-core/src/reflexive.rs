@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bond::{Bond, ErasedBond};
 use crate::oxide::{BondVisitor, DAG_CBOR_CODEC, Oxide};
+use crate::store::key_from_cid;
 use crate::{IntType, Solvent, Store, Structure};
 
 /// Internal multicodec used for Polyepoxide reflexive references.
@@ -126,7 +127,8 @@ pub fn resolve_reflexive_with_store<S: Store>(
         parse_ligation_bytes(cid.hash().digest())
     } else {
         let data_cid = reflexive_to_data_cid(&cid);
-        let Some(bytes) = store.get(&data_cid)? else {
+        let data_key = key_from_cid(&data_cid);
+        let Some(bytes) = store.get(&data_key)? else {
             return Ok(None);
         };
         parse_ligation_bytes(&bytes)

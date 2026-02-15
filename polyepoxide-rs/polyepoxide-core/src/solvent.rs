@@ -9,7 +9,7 @@ use crate::oxide::{BondVisitor, Oxide};
 use crate::reflexive::{
     Ligation, is_identity_cid, is_reflexive_cid, parse_ligation_bytes, reflexive_to_data_cid,
 };
-use crate::store::{Store, identity_overlay};
+use crate::store::{Store, identity_overlay, key_from_cid};
 
 /// Error type for solvent operations.
 #[derive(Debug, thiserror::Error)]
@@ -217,7 +217,8 @@ impl Solvent {
             if !visited.insert(cid) {
                 continue;
             }
-            store.put(&cid, &schema_erased.to_bytes())?;
+            let key = key_from_cid(&cid);
+            store.put(&key, &schema_erased.to_bytes())?;
         }
 
         // Persist value graph from root.
@@ -246,7 +247,8 @@ impl Solvent {
             }
         }
 
-        store.put(&cid, &value.to_bytes())?;
+        let key = key_from_cid(&cid);
+        store.put(&key, &value.to_bytes())?;
         Ok(())
     }
 
@@ -270,7 +272,8 @@ impl Solvent {
             }
         }
 
-        store.put(&cid, &cell.to_bytes())?;
+        let key = key_from_cid(&cid);
+        store.put(&key, &cell.to_bytes())?;
         Ok(())
     }
 }

@@ -147,14 +147,14 @@ fn load_schema_recursive(
     schemas: &mut polyepoxide_core::Solvent,
     cid: Cid,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use polyepoxide_core::{Store, Structure};
+    use polyepoxide_core::{key_from_cid, Store, Structure};
 
     if schemas.get::<Structure>(&cid).is_some() {
         return Ok(());
     }
 
     let bytes = store
-        .get(&cid)?
+        .get(&key_from_cid(&cid))?
         .ok_or_else(|| format!("schema not found: {}", cid))?;
 
     let schema: Structure = serde_ipld_dagcbor::from_slice(&bytes)?;

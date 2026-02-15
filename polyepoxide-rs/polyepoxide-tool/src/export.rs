@@ -3,7 +3,7 @@
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use polyepoxide_core::traverse::parse_to_ipld;
-use polyepoxide_core::{Solvent, Store, Structure};
+use polyepoxide_core::{key_from_cid, Solvent, Store, Structure};
 use serde_json::{Map, Number, Value as JsonValue};
 
 use crate::store::AnyStore;
@@ -63,7 +63,7 @@ fn export_to_json(
     depth: usize,
 ) -> Result<JsonValue, Box<dyn std::error::Error>> {
     let bytes = store
-        .get(&cid)?
+        .get(&key_from_cid(&cid))?
         .ok_or_else(|| format!("value not found: {}", cid))?;
 
     let ipld = parse_to_ipld(&bytes)?;
@@ -94,7 +94,7 @@ fn ipld_to_json(
                 Ok(JsonValue::Object(obj))
             } else {
                 // Expand the bond
-                if let Ok(Some(target_bytes)) = store.get(target_cid) {
+                if let Ok(Some(target_bytes)) = store.get(&key_from_cid(target_cid)) {
                     if let Ok(target_ipld) = parse_to_ipld(&target_bytes) {
                         if let Some(inner_schema) = inner.value() {
                             let mut result = ipld_to_json(

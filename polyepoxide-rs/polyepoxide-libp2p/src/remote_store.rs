@@ -2,10 +2,9 @@
 
 use std::collections::HashMap;
 
-use cid::Cid;
 use libp2p::PeerId;
 use libp2p::request_response::ResponseChannel;
-use polyepoxide_core::{AsyncStore, is_identity_cid};
+use polyepoxide_core::{AsyncStore, identity_digest_from_key};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::protocol::{Request, Response};
@@ -79,40 +78,40 @@ impl RemoteStore {
 impl AsyncStore for RemoteStore {
     type Error = RemoteStoreError;
 
-    async fn async_get(&self, cid: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
-        let results = self.async_get_many(&[*cid]).await?;
+    async fn async_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
+        let results = self.async_get_many(&[key.to_vec()]).await?;
         Ok(results.into_iter().next().flatten())
     }
 
-    async fn async_get_many(&self, cids: &[Cid]) -> Result<Vec<Option<Vec<u8>>>, Self::Error> {
-        let mut results = vec![None; cids.len()];
-        let mut remote_cids = Vec::new();
+    async fn async_get_many(&self, keys: &[Vec<u8>]) -> Result<Vec<Option<Vec<u8>>>, Self::Error> {
+        let mut results = vec![None; keys.len()];
+        let mut remote_keys = Vec::new();
         let mut remote_indexes = Vec::new();
 
-        for (idx, cid) in cids.iter().enumerate() {
-            if is_identity_cid(cid) {
-                results[idx] = Some(cid.hash().digest().to_vec());
+        for (idx, key) in keys.iter().enumerate() {
+            if let Some(digest) = identity_digest_from_key(key) {
+                results[idx] = Some(digest);
             } else {
                 remote_indexes.push(idx);
-                remote_cids.push(*cid);
+                remote_keys.push(key.clone());
             }
         }
 
-        if remote_cids.is_empty() {
+        if remote_keys.is_empty() {
             return Ok(results);
         }
 
         let response = self
             .send_request(Request::Get {
-                cids: remote_cids.clone(),
+                keys: remote_keys.clone(),
             })
             .await?;
 
         match response {
             Response::Nodes { found, missing: _ } => {
-                let found_map: HashMap<Cid, Vec<u8>> = found.into_iter().collect();
-                for (idx, cid) in remote_indexes.into_iter().zip(remote_cids.into_iter()) {
-                    results[idx] = found_map.get(&cid).cloned();
+                let found_map: HashMap<Vec<u8>, Vec<u8>> = found.into_iter().collect();
+                for (idx, key) in remote_indexes.into_iter().zip(remote_keys.into_iter()) {
+                    results[idx] = found_map.get(&key).cloned();
                 }
                 Ok(results)
             }
@@ -121,18 +120,18 @@ impl AsyncStore for RemoteStore {
         }
     }
 
-    async fn async_put(&self, cid: &Cid, value: &[u8]) -> Result<(), Self::Error> {
-        self.async_put_many(&[(cid, value)]).await
+    async fn async_put(&self, key: &[u8], value: &[u8]) -> Result<(), Self::Error> {
+        self.async_put_many(&[(key, value)]).await
     }
 
-    async fn async_put_many(&self, nodes: &[(&Cid, &[u8])]) -> Result<(), Self::Error> {
-        let nodes_owned: Vec<(Cid, Vec<u8>)> = nodes
+    async fn async_put_many(&self, nodes: &[(&[u8], &[u8])]) -> Result<(), Self::Error> {
+        let nodes_owned: Vec<(Vec<u8>, Vec<u8>)> = nodes
             .iter()
             .filter_map(|(k, v)| {
-                if is_identity_cid(k) {
+                if identity_digest_from_key(k).is_some() {
                     None
                 } else {
-                    Some((**k, v.to_vec()))
+                    Some(((*k).to_vec(), v.to_vec()))
                 }
             })
             .collect();
@@ -146,38 +145,38 @@ impl AsyncStore for RemoteStore {
             .await?;
 
         match response {
-            Response::Stored { cids: _ } => Ok(()),
+            Response::Stored { keys: _ } => Ok(()),
             Response::Error { message } => Err(RemoteStoreError::Remote(message)),
             _ => Err(RemoteStoreError::UnexpectedResponse),
         }
     }
 
-    async fn async_has(&self, cid: &Cid) -> Result<bool, Self::Error> {
-        let results = self.async_has_many(&[*cid]).await?;
+    async fn async_has(&self, key: &[u8]) -> Result<bool, Self::Error> {
+        let results = self.async_has_many(&[key.to_vec()]).await?;
         Ok(results.into_iter().next().unwrap_or(false))
     }
 
-    async fn async_has_many(&self, cids: &[Cid]) -> Result<Vec<bool>, Self::Error> {
-        let mut results = vec![false; cids.len()];
-        let mut remote_cids = Vec::new();
+    async fn async_has_many(&self, keys: &[Vec<u8>]) -> Result<Vec<bool>, Self::Error> {
+        let mut results = vec![false; keys.len()];
+        let mut remote_keys = Vec::new();
         let mut remote_indexes = Vec::new();
 
-        for (idx, cid) in cids.iter().enumerate() {
-            if is_identity_cid(cid) {
+        for (idx, key) in keys.iter().enumerate() {
+            if identity_digest_from_key(key).is_some() {
                 results[idx] = true;
             } else {
                 remote_indexes.push(idx);
-                remote_cids.push(*cid);
+                remote_keys.push(key.clone());
             }
         }
 
-        if remote_cids.is_empty() {
+        if remote_keys.is_empty() {
             return Ok(results);
         }
 
         let response = self
             .send_request(Request::Has {
-                cids: remote_cids.clone(),
+                keys: remote_keys.clone(),
             })
             .await?;
 

@@ -8,9 +8,9 @@ Polyepoxide is a blockchain-inspired synchronization database built on Merkle DA
 
 ### Merkle DAG with Structured Data
 
-Data is organized as a directed acyclic graph where each node is identified by a CID (Content Identifier) computed from its DAG-CBOR serialized content using Blake3 multihash. Polyepoxide builds on IPLD for content addressing and serialization, adding WIT-compatible type precision and semantic validation through refinement predicates. This enables deduplication, trustless verification, and natural caching — identical values yield identical CIDs regardless of when or where they were created.
+Data is organized as a directed acyclic graph where each node is identified by a CID (Content Identifier) computed from its serialized content using Blake3 multihash. Most values use DAG-CBOR CIDs; reflexive ligation references use a dedicated `polyepoxide-reflexive` multicodec. Store backends are keyed by multihash bytes, so different CID codecs with the same multihash address the same stored payload. Polyepoxide builds on IPLD for content addressing and serialization, adding WIT-compatible type precision and semantic validation through refinement predicates. This enables deduplication, trustless verification, and natural caching — identical values yield identical hashes regardless of when or where they were created.
 
-Unlike self-describing formats, Polyepoxide stores schemas separately in the DAG. Schemas and data are traversed in parallel (a "zipped" approach), keeping serialized data compact while preserving full type information. Schema types map directly to programming language constructs: sized integers (u8 through u64, i8 through i64), records, enums, tagged unions, and typed references (bonds) that enable lazy loading across DAG boundaries.
+Unlike self-describing formats, Polyepoxide stores schemas separately in the DAG. Schemas and data are traversed in parallel (a "zipped" approach), keeping serialized data compact while preserving full type information. Recursive and cyclic references are represented through the ligation mechanism (`Ligase`/`Slot`) using reflexive CIDs. Schema types map directly to programming language constructs: sized integers (u8 through u64, i8 through i64), records, enums, tagged unions, and typed references (bonds) that enable lazy loading across DAG boundaries.
 
 **Prototype status:** Core data model implemented in Rust. Schema types, CBOR serialization, and Cell/Bond/Solvent abstractions complete.
 
@@ -23,7 +23,7 @@ Unlike self-describing formats, Polyepoxide stores schemas separately in the DAG
 
 ### Synchronization Protocol
 
-The sync protocol runs over libp2p, enabling any device to act as both client and server. Peers transfer data via symmetric push/pull operations — request nodes by CID, check existence, or upload batches. When syncing a node, all transitive dependencies are transferred first, maintaining the invariant that if a CID exists locally, all its referenced nodes are present.
+The sync protocol runs over libp2p, enabling any device to act as both client and server. Peers transfer data via symmetric push/pull operations — request nodes by key, check existence, or upload batches — while sync entry points remain CID-based (value CID + schema CID). When syncing a node, all transitive dependencies are transferred first, maintaining the invariant that if a CID exists locally, all its referenced nodes are present.
 
 The protocol is designed for selective synchronization. A mobile client could sync only metadata and thumbnails for a photo gallery, fetching full-resolution images on demand. Sync preferences are per-device; peers don't track each other's filter configurations.
 

@@ -14,7 +14,7 @@ use libp2p::identity::Keypair;
 use libp2p::request_response::{self, OutboundRequestId};
 use libp2p::swarm::SwarmEvent;
 use libp2p::{Multiaddr, PeerId, Swarm};
-use polyepoxide_core::{Bond, MemoryStore, Oxide, Solvent, Store, pull};
+use polyepoxide_core::{Bond, MemoryStore, Oxide, Solvent, Store, key_from_cid, pull};
 use polyepoxide_libp2p::{
     Command, PolyepoxideBehaviour, RemoteStore, RemoteStoreError, Response, handle_request,
 };
@@ -177,7 +177,7 @@ async fn sync_simple_value_over_memory_transport() {
     let remote_store1 = RemoteStore::new(peer1_id, cmd_tx2.clone());
 
     // Verify store2 doesn't have the value yet
-    assert!(!store2.has(&value_key).unwrap());
+    assert!(!store2.has(&key_from_cid(&value_key)).unwrap());
 
     // Pull from remote (peer1) to local (store2)
     let dest_store = store2.as_ref();
@@ -190,7 +190,7 @@ async fn sync_simple_value_over_memory_transport() {
     match transferred {
         Ok(keys) => {
             println!("Transferred {} keys", keys.len());
-            assert!(store2.has(&value_key).unwrap());
+            assert!(store2.has(&key_from_cid(&value_key)).unwrap());
         }
         Err(e) => {
             // Expected - peers aren't connected in this simple test
@@ -226,8 +226,8 @@ async fn sync_with_bond_over_memory_transport() {
     let (chapter_key, _schema_key) = solvent.persist_cell(&chapter_cell, &store).unwrap();
 
     // Verify persist_cell stored both value and its bond dependency
-    assert!(store.has(&chapter_key).unwrap());
-    assert!(store.has(&author_cid).unwrap());
+    assert!(store.has(&key_from_cid(&chapter_key)).unwrap());
+    assert!(store.has(&key_from_cid(&author_cid)).unwrap());
 }
 
 #[tokio::test]
@@ -277,9 +277,9 @@ async fn sync_with_nested_bonds() {
     let (book_key, _schema_key) = solvent.persist_cell(&book_cell, &store).unwrap();
 
     // Verify persist_cell stored all values and their transitive dependencies
-    assert!(store.has(&book_key).unwrap());
-    assert!(store.has(&chapter1_cell.cid()).unwrap());
-    assert!(store.has(&chapter2_cell.cid()).unwrap());
-    assert!(store.has(&author1_cell.cid()).unwrap());
-    assert!(store.has(&author2_cell.cid()).unwrap());
+    assert!(store.has(&key_from_cid(&book_key)).unwrap());
+    assert!(store.has(&key_from_cid(&chapter1_cell.cid())).unwrap());
+    assert!(store.has(&key_from_cid(&chapter2_cell.cid())).unwrap());
+    assert!(store.has(&key_from_cid(&author1_cell.cid())).unwrap());
+    assert!(store.has(&key_from_cid(&author2_cell.cid())).unwrap());
 }

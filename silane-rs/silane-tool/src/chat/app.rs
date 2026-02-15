@@ -1,5 +1,5 @@
 use cid::Cid;
-use polyepoxide_core::{Bond, Cell, Oxide, Solvent, Store};
+use polyepoxide_core::{Bond, Cell, Oxide, Solvent, Store, key_from_cid};
 use polyepoxide_llm::{ContentBlock, GenerationParams, Message, MessageContent};
 use silane_openrouter::{OpenRouterClient, OpenRouterError, OpenRouterRequest};
 use std::sync::Arc;
@@ -101,8 +101,9 @@ impl ChatApp {
         }
 
         // Load from store
+        let key = key_from_cid(cid);
         let bytes = store
-            .get(cid)?
+            .get(&key)?
             .ok_or_else(|| SihError::MessageNotFound(*cid))?;
 
         let message: Message =
@@ -357,4 +358,3 @@ impl ChatApp {
         messages
     }
 }
-

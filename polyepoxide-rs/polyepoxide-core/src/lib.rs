@@ -58,7 +58,10 @@ pub use reflexive::{
 };
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
-pub use store::{IdentityStoreOverlay, MemoryStore, Store, identity_overlay};
+pub use store::{
+    IdentityStoreOverlay, MemoryStore, Store, identity_digest_from_key, identity_overlay,
+    key_from_cid,
+};
 pub use sync::{SyncError, pull, push};
 
 #[cfg(feature = "derive")]
