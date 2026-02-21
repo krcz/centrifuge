@@ -19,7 +19,8 @@ Polyepoxide is pre-alpha. Format details, schema representation, and APIs may ch
 - `CID`: content identifier composed of multicodec and multihash. Two CIDs can share the same multihash while using different codecs.
 - `Cell`: immutable in-memory wrapper around an oxide value plus its CID.
 - `Bond`: reference to another node with three states: unresolved, link, or ligation.
-- `ErasedBond`: type-agnostic bond used for dynamic traversal and ligation scope handling.
+- `erased bond`: a type-erased/wildcard/existential view of a bond used when concrete type parameters are unknown during traversal.
+- `BondVisitor`: callback/visitor used for outbound reference discovery; receives bond target CIDs, not full bond state.
 - `Ligation`: reflexive mechanism represented by `Ligase` and `Slot`, used for templates and cyclic data.
 - `Solvent`: in-memory deduplicating graph manager that internalizes and resolves bonds.
 - `Cursor`: traversal helper combining solvent access, current cell, and current ligation scope.
@@ -39,17 +40,20 @@ An oxide is the base abstraction for graph nodes. Each oxide type may contain di
 
 In practical terms, an implementation should expose methods equivalent to: `schema()`, `to_bytes()`, `from_bytes()`, `compute_cid()`, bond visitation, and `dissolve_in(solvent)`. The last method is critical: before a value becomes part of a solvent-managed graph, child bonds must be converted into the internal bond form that will later serialize as CID or reflexive references.
 
+`visit_bonds` is an outbound identity-discovery operation: the visitor should receive referenced target CIDs (or equivalent identity values), not full bond objects. This keeps traversal/persistence/sync dependency discovery independent from in-memory bond state.
+
 ### Structure
 
 `Structure` describes the shape of an oxide and enables schema-driven traversal for clients that do not have concrete type implementations. This is important both for interoperability and for tooling that inspects arbitrary data.
 
-`Structure` supports primitive and composite forms: booleans, text, bytes, integers, floats, `Unit`, sequences, tuples, records, tagged unions, enums, and bond-bearing forms. Recursive and parametric structures are represented through ligation rather than ad-hoc language features, so the same schema model can work across languages.
+`Structure` supports primitive and composite forms: booleans, characters, text, bytes, integers, floats, `Unit`, sequences, tuples, records, tagged unions, enums, and bond-bearing forms. Recursive and parametric structures are represented through ligation rather than ad-hoc language features, so the same schema model can work across languages.
 
 #### Type Mapping (Current Intent)
 
 | Polyepoxide `Structure` | IPLD / DAG-CBOR shape | WIT-style shape | Typical Rust-style shape |
 | --- | --- | --- | --- |
 | `Bool` | CBOR bool | `bool` | `bool` |
+| `Char` | CBOR text (single Unicode scalar value) | `char` | `char` |
 | `Unicode` | CBOR text | `string` | `String` |
 | `ByteString` | CBOR bytes | `list<u8>` / `bytes` | `Vec<u8>` |
 | `Cid` | IPLD link | opaque CID/id | `Cid` |
@@ -67,6 +71,8 @@ In practical terms, an implementation should expose methods equivalent to: `sche
 
 In practical IPLD terms, `Map` is best suited for unordered text-key maps. `OrderedMap` is the portable way to preserve order and support non-text keys, because it is encoded as explicit key/value pairs.
 
+For cross-language parity, language-specific encoding and mapping rules should also document container encodings for host-language sum/optional types (for example, `Option`-like and `Result`-like values) when those are mapped through `Structure::Sequence`/`Structure::Tagged`.
+
 ### Solvent
 
 Solvent is the in-memory graph runtime. It owns immutable cells, deduplicates them by CID, resolves references, and provides a controlled boundary between mutable runtime objects and immutable graph state.
@@ -75,11 +81,13 @@ For convenience, oxides can exist outside solvent as normal mutable values. Once
 
 The key invariant is that resolved solvent links only point to cells in the same solvent. Unresolved bonds may still exist as CID-only references when data is not currently materialized, but resolved links must not cross solvent boundaries.
 
-### Bond and ErasedBond
+### Bond and Erased Bonds
 
 `Bond` is a typed reference abstraction in languages that support generic types. It has three states: unresolved CID-only reference, resolved in-memory link, and ligation reference.
 
-`ErasedBond` is the type-agnostic counterpart used where concrete type information is unknown. In practice, this extra erased representation is mainly needed in languages with generics, where strongly typed `Bond<T>` is the default but some paths (such as ligation scopes) must cross type boundaries. In languages without generics, a single untyped bond model can cover both roles.
+An erased bond is the type-agnostic counterpart used where concrete type information is unknown. In some languages, this is represented directly as a wildcard/existential form of `Bond<T>` (for example `Bond<?>`/`Bond<*>`) rather than a separate runtime type. In others, explicit erased bond/cell wrapper types remain the clearest design for heterogenous solvent storage and traversal.
+
+Correspondingly, a dedicated solvent API such as `add_erased_bond` is optional in runtimes with native wildcard erasure. Those runtimes can often use `Bond<?>` directly with the regular bond insertion/resolution APIs.
 
 Serialization behavior is intentionally simple and stable: bonds serialize as CID values. Deserialization yields `Unresolved`, because a byte stream only carries identity, not in-memory pointers. Resolved links are reconstructed later via solvent or cursor resolution.
 
@@ -98,6 +106,11 @@ In graph terms, ligation behaves like composition of open DAG fragments. A `Slot
 During traversal, passing through `Ligase(args)` establishes a reflexive scope. Encountering `Slot(i)` means: resolve as if traversal stepped into `scope[i]`. In this interpretation, `Slot` behaves like a variable lookup and `Ligase` behaves like a variable binder.
 
 Index `0` has special meaning: it corresponds to the current ligase entry-point. This is why zero-based indexing is semantically meaningful in Polyepoxide ligation, not merely conventional. A direct consequence is that slot resolution is scope-dependent. The same `Slot(i)` can resolve to different content when reached along different paths.
+
+For schema-generation profiles that support generic parameters, slot indexing is normative:
+
+- `Slot(0)` denotes self-reference / ligase entry-point.
+- Generic parameters map to `Slot(1)`, `Slot(2)`, ... in declaration order.
 
 #### Main Uses
 
@@ -124,6 +137,8 @@ This boundary is important. Because store indexing is hash-based, different CIDs
 Insertion starts by dissolving every outbound bond of a value into the target solvent. Resolved links are internalized as solvent-owned cells; unresolved references remain unresolved. Ligation bonds are dissolved as ligation values, not eagerly dereferenced as normal data edges. After dissolution, CID is computed and deduplication either reuses an existing cell or inserts a new one.
 
 Implementations should preserve a typed fast path when concrete types are known, and use erased/dynamic traversal where type information is unavailable. This mixed strategy keeps common operations efficient while supporting schema-driven generic behavior.
+
+Cells may compute and cache CID lazily. Implementations may also provide a constructor for cells with precomputed CID when decoding from known-CID contexts.
 
 ```text
 function add_to_solvent(value, solvent):
@@ -170,7 +185,11 @@ function persist_root(root_cell, solvent, store):
 
 Synchronization entry points are CID pairs: one for value root and one for schema root. Even though store operations are hash-based, sync remains CID-based because traversal decisions require codec and schema semantics.
 
-The algorithm walks value and schema together, resolves reflexive edges with scope, transfers dependencies before parents, and tracks visited state to avoid repeated work. Missing bytes, malformed encoding, mismatched schema, and unresolved references are reported as sync errors.
+The algorithm walks value and schema together, resolves reflexive edges with scope, transfers dependencies before parents, and tracks visited state to avoid repeated work. A robust visited key includes `(value_cid, schema_cid, value_scope, schema_scope)`.
+
+Current reference behavior is permissive for local shape mismatches encountered during schema-guided dependency discovery (such branches are skipped). Missing required blocks and root-level decode/format failures remain sync errors.
+
+Because transfer is dependency-first (children before parent), implementations may safely skip recursion for a node when destination already has that node CID. This optimization relies on the invariant that stored parent presence implies dependency presence.
 
 ```text
 function sync_pull(src_store, dst_store, value_cid, schema_cid):
@@ -178,6 +197,8 @@ function sync_pull(src_store, dst_store, value_cid, schema_cid):
 
 function walk(vcid, scid, value_scope, schema_scope):
   if already_visited(vcid, scid, value_scope, schema_scope):
+    return
+  if dst_store.has(multihash(vcid)):
     return
   schema = resolve_schema(scid, schema_scope)
   value_bytes = src_store.get(multihash(vcid)) or fail NotFound(vcid)
@@ -189,7 +210,7 @@ function walk(vcid, scid, value_scope, schema_scope):
 
 ## Implementation Details
 
-This section is intentionally language-agnostic. The goal is to preserve model semantics across runtimes, not to prescribe Rust-specific syntax.
+This section is intentionally language-agnostic. The goal is to preserve model semantics across runtimes, not to prescribe Rust-specific syntax (for example, lifetimes, trait objects, or proc-macro mechanics).
 
 Different languages use different naming and object-model conventions, but Polyepoxide implementations should keep these interfaces as close as possible in behavior and shape. Similar interfaces make specs, tests, and cross-language debugging much easier.
 
@@ -199,9 +220,11 @@ Different languages use different naming and object-model conventions, but Polye
 type CID
 type Hash = bytes
 type Bytes = bytes
+# Use Bond<?> and Cell<?> directly in languages with wildcard-style generic erasure.
+# In languages without built-in wildcard erasure, define equivalent erased bond/cell wrapper types.
 
 enum Ligation:
-  Ligase(args: list<ErasedBond>)
+  Ligase(args: list<Bond<?>>)
   Slot(index: uint16)
 
 enum Bond<T>:
@@ -209,29 +232,23 @@ enum Bond<T>:
   Link(cell: Cell<T>)
   Ligation(payload: Ligation)
 
-enum ErasedBond:
-  Unresolved(cid: CID)
-  Link(cell: ErasedCell)
-  Ligation(payload: Ligation)
+interface BondVisitor:
+  visit_cid(self, cid: CID)
 
 class Cell<T>:
-  cid: CID
+  cid_cache: optional<CID>
   value: T
-  cid(self) -> CID
+  cid(self) -> CID           # may compute lazily and cache
+  with_cid(value: T, cid: CID) -> Cell<T>
   value(self) -> T
 
-class ErasedCell:
-  cid(self) -> CID
-  as_any(self) -> Any
-  dissolve_in(self, solvent) -> ErasedCell
-
 interface Oxide:
-  schema() -> Bond<Structure>
+  schema() -> Bond<Structure>    # type-level/static or companion/registry-based
   to_bytes(self) -> Bytes
-  from_bytes(data: Bytes) -> Self
+  from_bytes(data: Bytes) -> Self  # type-level/static or codec/registry-based
   compute_cid(self) -> CID
   dissolve_in(self, solvent) -> Self
-  visit_bonds(self, visitor)
+  visit_bonds(self, visitor: BondVisitor)  # visitor receives outbound target CIDs
 
 interface Store:
   get(self, hash: Hash) -> Optional<Bytes>
@@ -245,9 +262,9 @@ interface AsyncStore:
 
 class Solvent:
   add(self, value) -> Cell<value_type>
-  get(self, cid) -> Optional<Cell<any>>
+  get(self, cid) -> Optional<Cell<?>>
   add_bond(self, bond<T>) -> Bond<T>
-  add_erased_bond(self, bond: ErasedBond) -> ErasedBond
+  add_erased_bond(self, bond: Bond<?>) -> Bond<?>  # optional in runtimes with native wildcard erasure
   resolve_bond(self, bond<T>) -> Bond<T>
   persist(self, cell, store) -> (value_cid: CID, schema_cid: CID)
 
@@ -276,7 +293,7 @@ A practical error model should separate structural failures from runtime/backend
 - `TypeMismatch`: content exists but cannot be interpreted as the requested type.
 - `DecodeError` / `FormatError`: encoded bytes are invalid for expected decoding rules.
 - `UnresolvedBond`: traversal requires a link that remains unresolved.
-- `LigationError`: invalid reflexive payload, slot out of bounds, malformed ligase scope.
+- `LigationError`: invalid reflexive payload, slot out of bounds, malformed ligase scope (common subcases: empty ligase entry, slot out-of-range).
 - `StoreError`: backend failure while reading/writing bytes.
 - `SyncError`: synchronization-level failure (source/destination/traversal mismatch).
 
@@ -288,6 +305,28 @@ Data payloads are addressed with DAG-CBOR CIDs (`multicodec 0x71`). Reflexive ov
 
 At the store boundary, addressing is by multihash bytes only. This allows natural aliasing of equal-content blocks regardless of codec view. When a workflow encounters a reflexive CID and needs raw ligation bytes, it translates codec to DAG-CBOR while keeping the same multihash and performs the store lookup by hash.
 
+### Normative Addressing and Encoding Rules (Current Reference Ruleset)
+
+The following rules describe the current reference ruleset used by the Rust implementation and should be treated as normative for compatibility-focused ports:
+
+1. DAG-CBOR content CIDs are computed as CIDv1 with:
+   - multicodec `0x71` (DAG-CBOR),
+   - multihash `blake3-256` over the serialized DAG-CBOR bytes.
+2. Reflexive CIDs use multicodec `0x300001` (`polyepoxide-reflexive`).
+3. Identity multihash code is `0x00`.
+4. `Ligation::Slot(i)` uses an identity multihash CID whose digest is the serialized ligation payload bytes.
+5. `Ligation::Ligase(args)` uses a hashed CID (blake3-256 over serialized ligation payload bytes).
+6. Store keys are multihash bytes only (`key = cid.multihash_bytes`), independent of codec.
+7. Identity multihash keys are virtual at the store overlay boundary:
+   - `get(identity_key)` returns digest bytes,
+   - `has(identity_key)` returns `true`,
+   - `put(identity_key, ...)` is a no-op.
+8. When resolving non-identity reflexive CIDs to payload bytes, convert to DAG-CBOR codec while preserving multihash, then read by multihash key.
+9. `Char` values are encoded as CBOR text containing exactly one Unicode scalar value.
+10. Current optional/result encoding rules:
+   - option-like values encode as sequence/cardinality-0-or-1: `[]` for none, `[x]` for some.
+   - result-like values encode as a single-entry map with lowercase tag key: `{"ok": x}` or `{"err": e}`.
+
 ## Conformance and Tests
 
 Because the project is pre-alpha, conformance is intentionally minimal and focused on stability anchors. The current baseline includes one golden vector computed by the reference Rust implementation:
@@ -296,4 +335,10 @@ Because the project is pre-alpha, conformance is intentionally minimal and focus
 
 This gives a concrete interoperability checkpoint while the format evolves.
 
-Additional vectors should be added as behavior stabilizes, especially for bond roundtrips, ligation scope resolution, hash-based store aliasing, and zipped sync traversal across value/schema graphs.
+Additional vectors should be added as behavior stabilizes, especially for:
+
+- bond roundtrips (`serialize -> CID only`, `deserialize -> unresolved`);
+- ligation scope resolution (`Slot(0)`, slot out-of-range, empty ligase);
+- hash-based store aliasing and identity-overlay behavior;
+- zipped sync traversal across value/schema graphs, including reflexive edges and ordered-map key/value traversal;
+- language-specific optional/result encoding rules.
