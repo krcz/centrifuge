@@ -19,7 +19,9 @@ Polyepoxide is pre-alpha. Format details, schema representation, and APIs may ch
 - `CID`: content identifier composed of multicodec and multihash. Two CIDs can share the same multihash while using different codecs.
 - `Cell`: immutable in-memory wrapper around an oxide value plus its CID.
 - `Bond`: reference to another node with three states: unresolved, link, or ligation.
-- `erased bond`: a type-erased/wildcard/existential view of a bond used when concrete type parameters are unknown during traversal.
+- **erased bond**: `Bond<?>`, a type-erased/wildcard/existential view of a bond used when concrete type parameters are unknown during traversal.
+- `DynamicBond`: schema-carrying erased bond pairing `Bond<Structure>` with an **erased bond**.
+- `Catalogue`: oxide record containing named dynamic bonds (`items: map<string, DynamicBond>`).
 - `BondVisitor`: callback/visitor used for outbound reference discovery; receives bond target CIDs, not full bond state.
 - `Ligation`: reflexive mechanism represented by `Ligase` and `Slot`, used for templates and cyclic data.
 - `Solvent`: in-memory deduplicating graph manager that internalizes and resolves bonds.
@@ -90,6 +92,17 @@ An erased bond is the type-agnostic counterpart used where concrete type informa
 Correspondingly, a dedicated solvent API such as `add_erased_bond` is optional in runtimes with native wildcard erasure. Those runtimes can often use `Bond<?>` directly with the regular bond insertion/resolution APIs.
 
 Serialization behavior is intentionally simple and stable: bonds serialize as CID values. Deserialization yields `Unresolved`, because a byte stream only carries identity, not in-memory pointers. Resolved links are reconstructed later via solvent or cursor resolution.
+
+`DynamicBond` (Rust type: `DynBond`) is an oxide wrapper with:
+
+- `schema: Bond<Structure>`
+- `bond: Bond<?>`
+
+It represents a schema-bound dynamic reference. Typed resolution must compare schema CIDs (`T::schema()` vs `DynamicBond.schema`) before converting to `Bond<T>`.
+
+`Catalogue` is an oxide map wrapper:
+
+- `items: map<string, DynamicBond>`
 
 ### Ligation
 
@@ -231,6 +244,13 @@ enum Bond<T>:
   Unresolved(cid: CID)
   Link(cell: Cell<T>)
   Ligation(payload: Ligation)
+
+class DynamicBond:
+  schema: Bond<Structure>
+  bond: Bond<?>
+
+class Catalogue:
+  items: map<string, DynamicBond>
 
 interface BondVisitor:
   visit_cid(self, cid: CID)

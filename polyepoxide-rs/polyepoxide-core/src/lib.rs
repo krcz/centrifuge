@@ -34,7 +34,9 @@
 mod async_store;
 mod bond;
 mod cell;
+mod common;
 mod cursor;
+mod dyn_bond;
 mod oxide;
 mod reflexive;
 mod schema;
@@ -48,7 +50,9 @@ pub use async_store::{AsyncStore, IdentityAsyncStoreOverlay, identity_overlay_as
 pub use bond::{Bond, ErasedBond};
 pub use cell::{Cell, ErasedCell};
 pub use cid::Cid;
+pub use common::Catalogue;
 pub use cursor::{Cursor, CursorError};
+pub use dyn_bond::{DynBond, DynBondError};
 pub use oxide::{BondVisitor, ByteString, Oxide, compute_cid};
 pub use reflexive::{
     Ligation, MULTIHASH_IDENTITY, POLYEPOXIDE_REFLEXIVE_CODEC, data_to_reflexive_cid,
