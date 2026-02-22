@@ -75,6 +75,12 @@ In practical IPLD terms, `Map` is best suited for unordered text-key maps. `Orde
 
 For cross-language parity, language-specific encoding and mapping rules should also document container encodings for host-language sum/optional types (for example, `Option`-like and `Result`-like values) when those are mapped through `Structure::Sequence`/`Structure::Tagged`.
 
+#### Polyepoxide Data Structures
+
+Some applications need to store and index very large collections. In those cases, we prefer not to keep all data in a single oxide node. Instead, Polyepoxide defines standard, composable data structures that spread content across multiple linked nodes while preserving deterministic, content-addressed behavior.
+
+See [polyepoxide-data.rs] specification.
+
 ### Solvent
 
 Solvent is the in-memory graph runtime. It owns immutable cells, deduplicates them by CID, resolves references, and provides a controlled boundary between mutable runtime objects and immutable graph state.
