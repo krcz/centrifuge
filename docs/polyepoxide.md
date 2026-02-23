@@ -89,6 +89,8 @@ For convenience, oxides can exist outside solvent as normal mutable values. Once
 
 The key invariant is that resolved solvent links only point to cells in the same solvent. Unresolved bonds may still exist as CID-only references when data is not currently materialized, but resolved links must not cross solvent boundaries.
 
+Because solvent cells are deduplicated and shared, implementations must enforce immutability at the type level, not just by convention. Handles returned by solvent operations must expose only read access to the contained value; no path to mutate through a shared handle should exist.
+
 ### Bond and Erased Bonds
 
 `Bond` is a typed reference abstraction in languages that support generic types. It has three states: unresolved CID-only reference, resolved in-memory link, and ligation reference.
@@ -310,6 +312,18 @@ Implementations should preserve these invariants:
 4. Bond serialization emits CID form; deserialization yields unresolved bonds.
 5. Store identity is multihash-based, independent of CID codec.
 6. `Slot` resolution depends on traversal scope and may vary by path.
+
+### Immutability Enforcement
+
+Solvent cells are deduplicated by CID and may be referenced from many places in the graph simultaneously. A mutation through any one reference would silently corrupt all other holders, potentially invalidating CID stability, breaking traversal, and causing subtle sync errors.
+
+Implementations must therefore make mutation structurally difficult, not merely undocumented. The expected pattern is:
+
+- **Isolation on insertion**: in languages with ownership semantics, the caller surrenders the value so no aliased mutable copy can remain outside the solvent. In languages without ownership, the solvent must deep-copy the value on insertion, ensuring that any reference the caller retains points to a separate copy it cannot use to affect the stored cell.
+- **Read-only shared handles**: handles returned to callers (typed or erased) expose only immutable borrows of the contained value. There is no public mutable accessor on cells.
+- **Encapsulation**: internal cell and solvent storage is hidden behind an interface that exposes only the operations above.
+
+In Rust, `Arc<Cell<T>>` with a `value() -> &T` accessor and no `DerefMut` satisfies this. The `ErasedCell` trait takes only `&self`, so downcasting produces only shared references.
 
 ### Error Taxonomy
 
