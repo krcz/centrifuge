@@ -1,7 +1,6 @@
 //! Polyepoxide TUI explorer tool.
 
 mod app;
-mod export;
 mod store;
 mod tree;
 mod ui;
@@ -11,9 +10,9 @@ use std::str::FromStr;
 
 use cid::Cid;
 use clap::{Parser, Subcommand};
+use polyepoxide_core::{ExportFormat, ExportOptions, ExportProfile, Solvent, export, load_schema_recursive};
 
 use app::App;
-use export::{export, ExportFormat, ExportOptions};
 use store::AnyStore;
 
 #[derive(Parser)]
@@ -45,9 +44,9 @@ enum Command {
         path: PathBuf,
     },
 
-    /// Export a value to JSON or YAML
+    /// Export a value to YAML, JSON-LD, or YAML-LD
     Export {
-        /// CID of the root value
+        /// CID of the root bond or value
         #[arg(long)]
         cid: String,
 
@@ -63,13 +62,13 @@ enum Command {
         #[arg(long)]
         path: PathBuf,
 
-        /// Output format: json or yaml
-        #[arg(long, default_value = "json")]
+        /// Output format: jsonld, yaml, or yamlld
+        #[arg(long, default_value = "jsonld")]
         format: String,
 
-        /// Maximum depth to expand bonds (0 = only $ref)
-        #[arg(long, default_value = "2")]
-        depth: usize,
+        /// Export profile: canonical, full, or direct
+        #[arg(long, default_value = "full")]
+        profile: String,
 
         /// Output file (default: stdout)
         #[arg(short, long)]
@@ -100,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             store,
             path,
             format,
-            depth,
+            profile,
             output,
         } => {
             let root_cid = Cid::from_str(&cid)?;
@@ -108,19 +107,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let store = open_store(&store, &path)?;
 
             let format = match format.to_lowercase().as_str() {
-                "json" => ExportFormat::Json,
+                "jsonld" | "json-ld" | "json" => ExportFormat::JsonLd,
                 "yaml" | "yml" => ExportFormat::Yaml,
+                "yamlld" | "yaml-ld" => ExportFormat::YamlLd,
                 _ => return Err(format!("unknown format: {}", format).into()),
             };
 
+            let profile = match profile.to_lowercase().as_str() {
+                "canonical" => ExportProfile::Canonical,
+                "full" => ExportProfile::Full,
+                "direct" => ExportProfile::Direct,
+                _ => return Err(format!("unknown profile: {}", profile).into()),
+            };
+
             let options = ExportOptions {
-                depth,
+                profile,
                 pretty: true,
             };
 
-            // Build a solvent with the schema
-            let mut schemas = polyepoxide_core::Solvent::new();
-            load_schema_recursive(&store, &mut schemas, schema_cid)?;
+            let schemas = Solvent::new();
+            let _ = load_schema_recursive(&store, &schemas, schema_cid)?;
 
             let content = export(&store, &schemas, root_cid, schema_cid, format, &options)?;
 
@@ -140,47 +146,4 @@ fn open_store(store_type: &str, path: &PathBuf) -> Result<AnyStore, Box<dyn std:
         "rocks" | "rocksdb" => Ok(AnyStore::open_rocks(path)?),
         _ => Err(format!("unknown store type: {}", store_type).into()),
     }
-}
-
-fn load_schema_recursive(
-    store: &AnyStore,
-    schemas: &mut polyepoxide_core::Solvent,
-    cid: Cid,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use polyepoxide_core::{key_from_cid, Store, Structure};
-
-    if schemas.get::<Structure>(&cid).is_some() {
-        return Ok(());
-    }
-
-    let bytes = store
-        .get(&key_from_cid(&cid))?
-        .ok_or_else(|| format!("schema not found: {}", cid))?;
-
-    let schema: Structure = serde_ipld_dagcbor::from_slice(&bytes)?;
-
-    // Recursively load nested schemas
-    match &schema {
-        Structure::Sequence(inner) | Structure::Bond(inner) => {
-            load_schema_recursive(store, schemas, inner.cid())?;
-        }
-        Structure::Tuple(elems) => {
-            for elem in elems {
-                load_schema_recursive(store, schemas, elem.cid())?;
-            }
-        }
-        Structure::Record(fields) | Structure::Tagged(fields) => {
-            for (_, field) in fields {
-                load_schema_recursive(store, schemas, field.cid())?;
-            }
-        }
-        Structure::Map { key: k, value: v } | Structure::OrderedMap { key: k, value: v } => {
-            load_schema_recursive(store, schemas, k.cid())?;
-            load_schema_recursive(store, schemas, v.cid())?;
-        }
-        _ => {}
-    }
-
-    schemas.add(schema);
-    Ok(())
 }

@@ -1,7 +1,9 @@
 use cid::Cid;
+use indexmap::IndexMap;
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use crate::bond::Bond;
 use crate::schema::Structure;
@@ -240,6 +242,29 @@ impl<T: Oxide, E: Oxide> Oxide for Result<T, E> {
             Ok(v) => Ok(v.dissolve_in(solvent)),
             Err(e) => Err(e.dissolve_in(solvent)),
         }
+    }
+}
+
+impl<K, V> Oxide for IndexMap<K, V>
+where
+    K: Oxide + Eq + Hash,
+    V: Oxide,
+{
+    fn schema() -> Bond<Structure> {
+        Structure::ordered_map(K::schema(), V::schema())
+    }
+
+    fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
+        for (key, value) in self {
+            key.visit_bonds(visitor);
+            value.visit_bonds(visitor);
+        }
+    }
+
+    fn dissolve_in(&self, solvent: &Solvent) -> Self {
+        self.iter()
+            .map(|(key, value)| (key.dissolve_in(solvent), value.dissolve_in(solvent)))
+            .collect()
     }
 }
 

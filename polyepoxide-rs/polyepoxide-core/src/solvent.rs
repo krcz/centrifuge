@@ -38,6 +38,14 @@ impl Solvent {
         self.cells.read().unwrap().get(cid).cloned()
     }
 
+    fn dependency_cell(&self, cid: &Cid) -> Option<Arc<dyn ErasedCell>> {
+        self.get_erased(cid).or_else(|| {
+            is_reflexive_cid(cid)
+                .then(|| reflexive_to_data_cid(cid))
+                .and_then(|data_cid| self.get_erased(&data_cid))
+        })
+    }
+
     fn all_cells(&self) -> Vec<Arc<dyn ErasedCell>> {
         self.cells.read().unwrap().values().cloned().collect()
     }
@@ -104,7 +112,14 @@ impl Solvent {
     /// Gets an oxide by CID, if it exists and has the correct type.
     pub fn get<T: Oxide>(&self, cid: &Cid) -> Option<Arc<Cell<T>>> {
         if let Some(existing) = self.get_erased(cid) {
-            if let Some(cell) = downcast_cell::<T>(existing) {
+            let typed = downcast_cell::<T>(existing);
+            #[cfg(debug_assertions)]
+            assert!(
+                typed.is_some(),
+                "Solvent::get type mismatch for CID {}",
+                cid
+            );
+            if let Some(cell) = typed {
                 return Some(cell);
             }
         }
@@ -242,7 +257,7 @@ impl Solvent {
         let mut collector = CidCollector::default();
         value.visit_bonds(&mut collector);
         for dep in collector.cids {
-            if let Some(dep_cell) = self.get_erased(&dep) {
+            if let Some(dep_cell) = self.dependency_cell(&dep) {
                 self.persist_erased_cell(dep_cell, store, visited)?;
             }
         }
@@ -267,7 +282,7 @@ impl Solvent {
         let mut collector = CidCollector::default();
         cell.visit_bonds(&mut collector);
         for dep in collector.cids {
-            if let Some(dep_cell) = self.get_erased(&dep) {
+            if let Some(dep_cell) = self.dependency_cell(&dep) {
                 self.persist_erased_cell(dep_cell, store, visited)?;
             }
         }
@@ -386,6 +401,29 @@ mod tests {
             resolved,
             Bond::Ligation(ref ligation) if **ligation == crate::Ligation::Slot(2)
         ));
+    }
+
+    #[test]
+    fn solvent_get_is_exact_for_reflexive_cids() {
+        let solvent = Solvent::new();
+        let ligation = crate::Ligation::Ligase(vec![ErasedBond::from_cid(compute_cid(b"target"))]);
+        let data_cell = solvent.add(ligation.clone());
+        let reflexive_cid = crate::ligation_cid(&ligation);
+
+        assert!(solvent.get::<crate::Ligation>(&reflexive_cid).is_none());
+        assert_eq!(
+            solvent.get::<crate::Ligation>(&data_cell.cid()).unwrap().value(),
+            &ligation
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "Solvent::get type mismatch")]
+    fn solvent_get_panics_on_exact_type_mismatch_in_debug() {
+        let solvent = Solvent::new();
+        let cell = solvent.add("hello".to_string());
+        let _ = solvent.get::<u64>(&cell.cid());
     }
 
     #[test]

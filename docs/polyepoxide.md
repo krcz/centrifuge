@@ -99,7 +99,7 @@ An erased bond is the type-agnostic counterpart used where concrete type informa
 
 Correspondingly, a dedicated solvent API such as `add_erased_bond` is optional in runtimes with native wildcard erasure. Those runtimes can often use `Bond<?>` directly with the regular bond insertion/resolution APIs.
 
-Serialization behavior is intentionally simple and stable: bonds serialize as CID values. Deserialization yields `Unresolved`, because a byte stream only carries identity, not in-memory pointers. Resolved links are reconstructed later via solvent or cursor resolution.
+Binary persistence behavior is intentionally simple and stable: in DAG-CBOR and related raw oxide codecs, bonds serialize as CID values. Deserialization yields `Unresolved`, because a byte stream only carries identity, not in-memory pointers. Resolved links are reconstructed later via solvent or cursor resolution. Higher-level import/export profiles may expose additional hydrated structure for inspection and editing.
 
 `DynamicBond` (Rust type: `DynBond`) is an oxide wrapper with:
 
@@ -309,7 +309,7 @@ Implementations should preserve these invariants:
 1. Cells are immutable once inserted into solvent.
 2. Deduplication is by CID, not pointer identity.
 3. Resolved solvent links point only to cells in the same solvent.
-4. Bond serialization emits CID form; deserialization yields unresolved bonds.
+4. Raw bond serialization emits CID form; deserialization yields unresolved bonds.
 5. Store identity is multihash-based, independent of CID codec.
 6. `Slot` resolution depends on traversal scope and may vary by path.
 
@@ -336,6 +336,139 @@ A practical error model should separate structural failures from runtime/backend
 - `LigationError`: invalid reflexive payload, slot out of bounds, malformed ligase scope (common subcases: empty ligase entry, slot out-of-range).
 - `StoreError`: backend failure while reading/writing bytes.
 - `SyncError`: synchronization-level failure (source/destination/traversal mismatch).
+
+## Oxide Import and Export
+
+In addition to raw DAG-CBOR persistence, Polyepoxide may expose higher-level oxide import/export formats for debugging, interchange, manual inspection, and partially self-describing workflows. These formats are graph-oriented and may preserve hydrated traversal results that do not appear in the raw binary representation.
+
+Allowed surface syntaxes are:
+
+- `YAML`
+- `JSON-LD`
+- `YAML-LD`
+
+`JSON-LD` and `YAML-LD` use explicit node identifiers and references (`@id`). `YAML` may additionally use native anchors and aliases as a presentation convenience, but those anchors are not part of the semantic model and importers must not rely on any specific anchor naming scheme.
+
+### Store-Level Import/Export
+
+Oxide import/export operates at the store boundary. The caller provides:
+
+- a root CID
+- a root schema CID
+- a value store
+- a schema solvent
+
+Export renders the root bond identified by `(root_cid, schema_cid)`. Import parses a document relative to `schema_cid`, writes any materialized value and ligation blocks into the caller-provided store, and returns the imported root CID.
+
+The schema solvent is the typing context for traversal. Import/export must not depend on exported cursor-state metadata being embedded in the document.
+
+Self-describing interchange is achieved by supplying a schema-carrying wrapper such as `DynamicBond` / `DynBond`, rather than by requiring every serialized document to carry schema metadata inline.
+
+### Bond Envelope
+
+At oxide import/export level, every bond position, including the root, may be represented either by an explicit envelope object or, in `direct` export mode, by its hydrated value directly.
+
+The explicit envelope object matches the stored `Bond` variant shape, optionally augmented with a hydrated value:
+
+- `$link`: a regular CID-bearing bond
+- `$ligation`: a reflexive `Ligation` term
+- `$schema`: schema CID for erased bond positions that do not otherwise carry type
+- `$value`: an optional resolved occurrence reached by traversing that bond in the current cursor context
+
+Faithful exports must preserve the stored term. `$value` is an additional hydrated view; it is not a replacement for `$link` or `$ligation` in round-trippable profiles.
+
+If a bond position is encoded without any of `$link`, `$ligation`, or `$value`, import treats it as if it had been wrapped in `$value`. This allows the same mechanism to serve as a generic typed data import surface.
+
+In particular:
+
+- `$link` identifies the persisted bond target directly.
+- `$ligation` mirrors the stored reflexive term (`Slot` or `Ligase`), not a post-resolution target.
+- `$schema` is used for erased bond positions, such as `Ligase` arguments, so import can validate or hydrate them without out-of-band Rust type information.
+- `$value` represents a resolved occurrence under the current cursor state. Two occurrences may therefore share the same underlying cell CID while remaining distinct export nodes because they arise under different ligation scopes.
+
+Within a `Ligase`, each argument is serialized as an erased bond envelope. In faithful forms, that means at least:
+
+- `$link` or `$ligation`
+- `$schema`
+
+`full` export may also attach `$value` to such erased bond arguments. `canonical` keeps them unhydrated.
+
+Exception: argument `0` is the ligase entry point and may omit `$schema`, inheriting the enclosing schema context instead.
+
+### Export Profiles
+
+Three export profiles are supported. They apply equally to the root bond and to nested bonds:
+
+1. `canonical`
+
+   Each bond object must preserve its stored term:
+
+   - regular bonds use `$link`
+   - ligation bonds use `$ligation`
+
+   For regular bonds, exporters should also include `$value` when the linked target is already available in the current solvent/store. For ligation bonds, `$value` is omitted in this profile.
+
+   This profile preserves the original bond kind and remains suitable for faithful round-trip import.
+
+2. `full`
+
+   Each bond object preserves its stored term exactly as in `canonical`, and may additionally include `$value` for both regular and ligation bonds.
+
+   This profile is intended for fully hydrated graph inspection. It remains round-trippable because the stored term is still present.
+
+3. `direct`
+
+   Each bond position is exported as its hydrated value directly, without a wrapper object. Shared hydrated occurrences are still deduplicated through `@id` / YAML aliases.
+
+   On import, such values are treated as if they were wrapped in `$value`.
+
+   This profile is convenient for presentation and editing of materialized data, but it is not faithful: it does not preserve whether the original stored bond was a regular link or a ligation term, and it cannot represent unresolved bonds exactly.
+
+### Import Modes
+
+Import uses validation modes rather than export profiles:
+
+1. `lenient`
+
+   Any bond position without `$link`, `$ligation`, or `$value` is treated as an implicit `$value`.
+
+   This mode accepts mixed documents containing explicit envelopes and direct hydrated values.
+
+2. `faithful`
+
+   Every bond must carry `$link` or `$ligation`.
+
+   `$value` may be present in addition to the stored term.
+
+3. `canonical`
+
+   Same as `faithful`, and additionally forbids `$value` on ligation bonds.
+
+   This corresponds to the strictest round-trippable interpretation of the export format.
+
+### References and Occurrences
+
+Hydrated `$value` objects, or direct hydrated values in the `direct` profile, may be defined at first occurrence and referenced from later positions in the same export document. This is especially useful when a graph contains sharing, cycles, or multiple scoped occurrences of the same cell.
+
+Reference identifiers are transport-level labels, not semantic identity. Importers must treat them as opaque and must support arbitrary valid document-local references. Exporters should use identifiers derived from cursor state when determinism matters, because the same cell CID may appear as multiple distinct hydrated occurrences under different ligation scopes.
+
+For deterministic full exports:
+
+- exporters should derive occurrence reference ids from cursor state
+- the same cursor state should always map to the same exported reference id
+- different cursor states should map to different exported reference ids, even when they point at the same underlying cell CID
+
+For non-deterministic or convenience exports, arbitrary reference ids are acceptable.
+
+### Format Mapping Rules
+
+The same oxide import/export model may be rendered through different surface syntaxes:
+
+- `YAML`: values may be defined inline, with aliases used for later references.
+- `JSON-LD`: hydrated occurrences use `@id` for referenceability and may be nested locally at first occurrence.
+- `YAML-LD`: same linked-data object model as JSON-LD, expressed with YAML syntax.
+
+Local nesting is a framing choice, not a semantic requirement. Implementations must accept equivalent documents that flatten or reorder definitions, as long as the reference graph and typed content are preserved.
 
 ## Interoperation with IPFS Ecosystem
 

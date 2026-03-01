@@ -135,6 +135,9 @@ fn get_serde_with_for_type(ty: &syn::Type) -> Option<&'static str> {
             match segment.ident.to_string().as_str() {
                 "Option" => return Some("::polyepoxide_core::serde_helpers::option_as_array"),
                 "Result" => return Some("::polyepoxide_core::serde_helpers::result_lowercase"),
+                "IndexMap" => {
+                    return Some("::polyepoxide_core::serde_helpers::indexmap_as_ordered_map");
+                }
                 _ => {}
             }
         }

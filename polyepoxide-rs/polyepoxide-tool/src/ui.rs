@@ -119,9 +119,11 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Span::styled("b", Style::default().fg(Color::Yellow)),
         Span::raw(" Back  "),
         Span::styled("e", Style::default().fg(Color::Yellow)),
-        Span::raw(" Export JSON  "),
+        Span::raw(" Export JSON-LD  "),
         Span::styled("y", Style::default().fg(Color::Yellow)),
         Span::raw(" Export YAML  "),
+        Span::styled("L", Style::default().fg(Color::Yellow)),
+        Span::raw(" Export YAML-LD  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" Quit"),
     ];

@@ -110,10 +110,13 @@ pub enum Structure {
     /// Heterogeneous fixed-size tuple.
     Tuple(Vec<Bond<Structure>>),
     /// Record with ordered named fields. Encodes as array (field order from schema).
+    #[serde(with = "crate::serde_helpers::indexmap_as_ordered_map")]
     Record(IndexMap<String, Bond<Structure>>),
     /// Tagged union with payloads. Encodes as map with single key.
+    #[serde(with = "crate::serde_helpers::indexmap_as_ordered_map")]
     Tagged(IndexMap<String, Bond<Structure>>),
-    /// C-style enum (unit variants only). Encodes as variant index.
+    /// C-style enum (unit variants only). With the current Serde representation,
+    /// unit variants encode by name.
     Enum(Vec<String>),
 
     // Map types
@@ -226,11 +229,14 @@ impl Oxide for Structure {
     /// Recursive references use Slot(0) and are wrapped in Ligase.
     fn schema() -> Bond<Structure> {
         let self_ref: Bond<Structure> = Bond::from_ligation(Ligation::Slot(0));
+        // Variant payload schemas are themselves stored as Bond<Structure>. `self_ref` is the
+        // recursive schema of `Structure`, while `self_bond` is the schema of `Bond<Structure>`.
+        let self_bond = Bond::new(Structure::Bond(self_ref.clone()));
 
         let map_payload = Bond::new(Structure::Record(
             [
-                ("key".to_string(), self_ref.clone()),
-                ("value".to_string(), self_ref.clone()),
+                ("key".to_string(), self_bond.clone()),
+                ("value".to_string(), self_bond.clone()),
             ]
             .into_iter()
             .collect(),
@@ -248,23 +254,23 @@ impl Oxide for Structure {
                 ("Float".to_string(), FloatType::schema()),
                 ("Unit".to_string(), Bond::new(Structure::Unit)),
                 // Compound types
-                ("Sequence".to_string(), self_ref.clone()),
+                ("Sequence".to_string(), self_bond.clone()),
                 (
                     "Tuple".to_string(),
-                    Bond::new(Structure::Sequence(self_ref.clone())),
+                    Bond::new(Structure::Sequence(self_bond.clone())),
                 ),
                 (
                     "Record".to_string(),
                     Bond::new(Structure::OrderedMap {
                         key: Bond::new(Structure::Unicode),
-                        value: self_ref.clone(),
+                        value: self_bond.clone(),
                     }),
                 ),
                 (
                     "Tagged".to_string(),
                     Bond::new(Structure::OrderedMap {
                         key: Bond::new(Structure::Unicode),
-                        value: self_ref.clone(),
+                        value: self_bond.clone(),
                     }),
                 ),
                 (
@@ -275,7 +281,7 @@ impl Oxide for Structure {
                 ("Map".to_string(), map_payload.clone()),
                 ("OrderedMap".to_string(), map_payload),
                 // Polyepoxide-specific
-                ("Bond".to_string(), self_ref),
+                ("Bond".to_string(), self_bond),
             ]
             .into_iter()
             .collect(),

@@ -37,12 +37,15 @@ mod cell;
 mod common;
 mod cursor;
 mod dyn_bond;
+pub mod export;
+pub mod import;
 mod oxide;
 mod reflexive;
 mod schema;
 pub mod serde_helpers;
 mod solvent;
 mod store;
+mod store_cursor;
 mod sync;
 pub mod traverse;
 
@@ -53,6 +56,8 @@ pub use cid::Cid;
 pub use common::Catalogue;
 pub use cursor::{Cursor, CursorError};
 pub use dyn_bond::{DynBond, DynBondError};
+pub use export::{ExportError, ExportFormat, ExportOptions, ExportProfile, export};
+pub use import::{ImportError, ImportFormat, ImportMode, ImportOptions, import};
 pub use oxide::{BondVisitor, ByteString, Oxide, compute_cid};
 pub use reflexive::{
     Ligation, MULTIHASH_IDENTITY, POLYEPOXIDE_REFLEXIVE_CODEC, data_to_reflexive_cid,
@@ -62,6 +67,7 @@ pub use reflexive::{
 };
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
+pub use store_cursor::{CursorState, StoreCursor, load_schema_recursive};
 pub use store::{
     IdentityStoreOverlay, MemoryStore, Store, identity_digest_from_key, identity_overlay,
     key_from_cid,

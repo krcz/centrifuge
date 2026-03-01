@@ -3,6 +3,33 @@
 //! These modules provide custom serialization for types that need
 //! non-default CBOR representations.
 
+/// Serialize `IndexMap<K, V>` as an ordered array of `[key, value]` pairs.
+pub mod indexmap_as_ordered_map {
+    use indexmap::IndexMap;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::hash::Hash;
+
+    pub fn serialize<K, V, S>(value: &IndexMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        K: Serialize + Eq + Hash,
+        V: Serialize,
+        S: Serializer,
+    {
+        let pairs: Vec<_> = value.iter().collect();
+        pairs.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, K, V, D>(deserializer: D) -> Result<IndexMap<K, V>, D::Error>
+    where
+        K: Deserialize<'de> + Eq + Hash,
+        V: Deserialize<'de>,
+        D: Deserializer<'de>,
+    {
+        let pairs: Vec<(K, V)> = Vec::deserialize(deserializer)?;
+        Ok(pairs.into_iter().collect())
+    }
+}
+
 /// Serialize `Option<T>` as an array: `[]` for None, `[x]` for Some(x).
 ///
 /// This encoding allows distinguishing `None` from `Some(null)` when T is nullable.
@@ -102,6 +129,7 @@ pub mod result_lowercase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indexmap::IndexMap;
 
     fn to_dagcbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
         serde_ipld_dagcbor::to_vec(value).unwrap()
@@ -150,6 +178,24 @@ mod tests {
         };
         let bytes = to_dagcbor(&v);
         let recovered: WithResult = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
+        assert_eq!(recovered, v);
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+    struct WithIndexMap {
+        #[serde(with = "indexmap_as_ordered_map")]
+        value: IndexMap<String, i32>,
+    }
+
+    #[test]
+    fn indexmap_serializes_as_ordered_pairs() {
+        let mut map = IndexMap::new();
+        map.insert("first".to_string(), 1);
+        map.insert("second".to_string(), 2);
+
+        let v = WithIndexMap { value: map };
+        let bytes = to_dagcbor(&v);
+        let recovered: WithIndexMap = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
         assert_eq!(recovered, v);
     }
 }

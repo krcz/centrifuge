@@ -9,10 +9,10 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
+use polyepoxide_core::{ExportFormat, ExportOptions, export};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_tree_widget::TreeState;
 
-use crate::export::{export, ExportFormat, ExportOptions};
 use crate::store::AnyStore;
 use crate::tree::{NodeId, TreeModel};
 use crate::ui;
@@ -119,10 +119,13 @@ impl App {
                 self.zoom_out();
             }
             KeyCode::Char('e') => {
-                self.export_current(ExportFormat::Json);
+                self.export_current(ExportFormat::JsonLd);
             }
             KeyCode::Char('y') => {
                 self.export_current(ExportFormat::Yaml);
+            }
+            KeyCode::Char('L') => {
+                self.export_current(ExportFormat::YamlLd);
             }
             _ => {}
         }
@@ -181,8 +184,9 @@ impl App {
 
         let options = ExportOptions::default();
         let ext = match format {
-            ExportFormat::Json => "json",
+            ExportFormat::JsonLd => "jsonld",
             ExportFormat::Yaml => "yaml",
+            ExportFormat::YamlLd => "yamlld",
         };
 
         // Determine what to export: for bonds use the linked CID, otherwise use root
