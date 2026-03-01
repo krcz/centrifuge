@@ -1,0 +1,33 @@
+'@id': urn:px-occ:bafyr4ieqcqjhs4mc4tcxtq4b6q6bqotauuevbxu7yqujqxh55tnmxl2idq
+data:
+  schema:
+    '@id': urn:px-occ:bafyr4ibjwhmmu7yybys7r3eypjervkqmlevu4skvrsv73vnutlnxvdd5gm
+    data:
+      Record:
+      - - station
+        - '@id': urn:px-occ:bafyr4ih7ay2vw6gif6htg74mofsdbql73komifuwhqvabr53bqutg3pxsm
+          data: Unicode
+      - - substrate
+        - '@id': urn:px-occ:bafyr4idijdeo57ltzcpzg7f26fi4psx6jgpyuih3lffrvf2rhbfmvfhkie
+          data:
+            Bond:
+              '@id': urn:px-occ:bafyr4iaq5ocp3uzkv6fvhcjye645uqhik76sqoimol6rrcnzzftohqoh4q
+              data:
+                Record:
+                - - label
+                  - '@id': urn:px-occ:bafyr4ih7ay2vw6gif6htg74mofsdbql73komifuwhqvabr53bqutg3pxsm
+                - - formula
+                  - '@id': urn:px-occ:bafyr4ih7ay2vw6gif6htg74mofsdbql73komifuwhqvabr53bqutg3pxsm
+                - - lot
+                  - '@id': urn:px-occ:bafyr4ih7ay2vw6gif6htg74mofsdbql73komifuwhqvabr53bqutg3pxsm
+                - - purity_pct
+                  - '@id': urn:px-occ:bafyr4ig6kkw65kg3bacafdoze3eku2ywvzkdadyqolqqhctkav3rb7t5lu
+                    data:
+                      Int: U8
+      - - reagent
+        - '@id': urn:px-occ:bafyr4idijdeo57ltzcpzg7f26fi4psx6jgpyuih3lffrvf2rhbfmvfhkie
+      - - solvent
+        - '@id': urn:px-occ:bafyr4idijdeo57ltzcpzg7f26fi4psx6jgpyuih3lffrvf2rhbfmvfhkie
+  bond: bafyr4ies7seh7nu3tjwkpiiykjq4ariz2tfzu52znxduzxmew7dbz3rdeu
+'@context':
+  '@vocab': 'urn:px:'

@@ -1,0 +1,48 @@
+{
+  "$link": "bafyr4ies7seh7nu3tjwkpiiykjq4ariz2tfzu52znxduzxmew7dbz3rdeu",
+  "$value": {
+    "@id": "urn:px-occ:bafyr4ibdfapa2i3lrb2efd4pqmhosbmoa7dwmaj5a5wkyf2kiqvpnuj53i",
+    "data": {
+      "reagent": {
+        "$link": "bafyr4ie3ibbmadu7iele43prn3vk3yl4fddypseul4vtocouxucnb7az6a",
+        "$value": {
+          "@id": "urn:px-occ:bafyr4ibwmql2f5lomhplcgrvlzwr6ftlpri36lf6354br7xfmpyvlmko7e",
+          "data": {
+            "formula": "Al(OCH(CH3)2)3",
+            "label": "Aluminium isopropoxide",
+            "lot": "AIP-017",
+            "purity_pct": 98
+          }
+        }
+      },
+      "solvent": {
+        "$link": "bafyr4if74nhfrtdfopdojmomzpiw3nsqpi77kb44o2wrs3iam56yrde3wq",
+        "$value": {
+          "@id": "urn:px-occ:bafyr4iaz4vfvchfckoc3cbkdfjndhcmiagqro2iql6xl4glzvs4lyujtje",
+          "data": {
+            "formula": "C3H8O",
+            "label": "2-Propanol",
+            "lot": "IPA-310",
+            "purity_pct": 99
+          }
+        }
+      },
+      "station": "MPV bench 3",
+      "substrate": {
+        "$link": "bafyr4ig6khrosmarzdyggk3qoe3wsxx4hllpguvsv4ji725voh4ogvshky",
+        "$value": {
+          "@id": "urn:px-occ:bafyr4iacvozynee2aldj3qpqklr5wmiteimxnldxipcswr5cgzpnuciyf4",
+          "data": {
+            "formula": "C7H6O",
+            "label": "Benzaldehyde",
+            "lot": "BA-042",
+            "purity_pct": 99
+          }
+        }
+      }
+    }
+  },
+  "@context": {
+    "@vocab": "urn:px:"
+  }
+}

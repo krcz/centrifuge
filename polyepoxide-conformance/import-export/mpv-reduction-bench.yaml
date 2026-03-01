@@ -1,0 +1,22 @@
+station: MPV bench 3
+substrate:
+  id: urn:fixture:benzaldehyde
+  data:
+    label: Benzaldehyde
+    formula: C7H6O
+    lot: BA-042
+    purity_pct: 99
+reagent:
+  id: urn:fixture:aluminium-isopropoxide
+  data:
+    label: Aluminium isopropoxide
+    formula: Al(OCH(CH3)2)3
+    lot: AIP-017
+    purity_pct: 98
+solvent:
+  id: urn:fixture:isopropanol
+  data:
+    label: 2-Propanol
+    formula: C3H8O
+    lot: IPA-310
+    purity_pct: 99

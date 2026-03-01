@@ -1,0 +1,22 @@
+station: Aldol bench 2
+substrate:
+  id: urn:fixture:p-anisaldehyde
+  data:
+    label: p-Anisaldehyde
+    formula: C8H8O2
+    lot: PAN-021
+    purity_pct: 98
+reagent:
+  id: urn:fixture:lda
+  data:
+    label: Lithium diisopropylamide
+    formula: C6H14LiN
+    lot: LDA-118
+    purity_pct: 95
+solvent:
+  id: urn:fixture:thf
+  data:
+    label: THF
+    formula: C4H8O
+    lot: THF-501
+    purity_pct: 99

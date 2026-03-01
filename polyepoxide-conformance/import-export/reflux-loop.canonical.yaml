@@ -1,0 +1,11 @@
+$link: bafyr4icciadmwbcoptd5vqda7zzi6dvymsekrglbqjzzlxuvrybqymkyo4
+$value: &occ_urn_px_occ_bafyr4idqrudizbsmi6mocupbnq4zyjn3rmuagdgjlc6jfv5hpmykpeixva
+  id: urn:px-occ:bafyr4idqrudizbsmi6mocupbnq4zyjn3rmuagdgjlc6jfv5hpmykpeixva
+  data:
+    campaign: Fischer esterification reflux loop
+    entry:
+      $ligation:
+        Ligase:
+        - $link: bafyr4ihja42jb432g7ehlolxk35j2lcqqsefltqot3zk74lwuzm5a6az6i
+        - $link: bafyr4ieixqcsw7vvksibnbqlxotga57vnhksxzuqaiwja4ziolleb22ocu
+          $schema: bagaybqabdyqdp5kkmuqe4oadlnwxwal2tybec6ryztbjwkctiw5e32bz5e2uwei

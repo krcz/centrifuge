@@ -1,0 +1,22 @@
+station: Fischer esterification hood
+substrate:
+  id: urn:fixture:benzoic-acid
+  data:
+    label: Benzoic acid
+    formula: C7H6O2
+    lot: BAC-077
+    purity_pct: 99
+reagent:
+  id: urn:fixture:sulfuric-acid
+  data:
+    label: Sulfuric acid
+    formula: H2SO4
+    lot: H2SO4-900
+    purity_pct: 96
+solvent:
+  id: urn:fixture:methanol
+  data:
+    label: Methanol
+    formula: CH4O
+    lot: MEOH-214
+    purity_pct: 99
