@@ -56,8 +56,8 @@ pub fn parse_rrule(rrule: &str) -> Result<RecurrenceRule, GoogleError> {
         }
     }
 
-    let frequency = frequency
-        .ok_or_else(|| GoogleError::Parse("RRULE missing FREQ".to_string()))?;
+    let frequency =
+        frequency.ok_or_else(|| GoogleError::Parse("RRULE missing FREQ".to_string()))?;
 
     Ok(RecurrenceRule {
         frequency,
@@ -99,7 +99,8 @@ fn parse_by_day(s: &str) -> Result<Vec<Weekday>, GoogleError> {
         .map(|day| {
             // Handle both "MO" and "+1MO" (nth weekday) formats
             // For now, ignore the ordinal prefix
-            let day_str = day.trim_start_matches(|c: char| c.is_ascii_digit() || c == '+' || c == '-');
+            let day_str =
+                day.trim_start_matches(|c: char| c.is_ascii_digit() || c == '+' || c == '-');
             parse_weekday(day_str)
         })
         .collect()

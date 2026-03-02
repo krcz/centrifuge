@@ -412,7 +412,10 @@ mod tests {
 
         assert!(solvent.get::<crate::Ligation>(&reflexive_cid).is_none());
         assert_eq!(
-            solvent.get::<crate::Ligation>(&data_cell.cid()).unwrap().value(),
+            solvent
+                .get::<crate::Ligation>(&data_cell.cid())
+                .unwrap()
+                .value(),
             &ligation
         );
     }

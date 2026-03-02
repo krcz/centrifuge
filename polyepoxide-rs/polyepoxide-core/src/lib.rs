@@ -67,11 +67,11 @@ pub use reflexive::{
 };
 pub use schema::{FloatType, IntType, Structure};
 pub use solvent::{Solvent, SolventError};
-pub use store_cursor::{CursorState, StoreCursor, load_schema_recursive};
 pub use store::{
-    IdentityStoreOverlay, MemoryStore, Store, identity_digest_from_key, identity_overlay,
-    key_from_cid,
+    BookmarkError, IdentityStoreOverlay, MemoryStore, Store, identity_digest_from_key,
+    identity_overlay, key_from_cid,
 };
+pub use store_cursor::{CursorState, StoreCursor, load_schema_recursive};
 pub use sync::{SyncError, pull, push};
 
 #[cfg(feature = "derive")]

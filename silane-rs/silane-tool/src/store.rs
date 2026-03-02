@@ -80,6 +80,20 @@ impl Store for AnyStore {
             AnyStore::Rocks(s) => s.has(key).map_err(Into::into),
         }
     }
+
+    fn get_bookmark_bytes(&self, name: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        match self {
+            AnyStore::Fjall(s) => s.get_bookmark_bytes(name).map_err(Into::into),
+            AnyStore::Rocks(s) => s.get_bookmark_bytes(name).map_err(Into::into),
+        }
+    }
+
+    fn put_bookmark_bytes(&self, name: &str, value: &[u8]) -> Result<(), Self::Error> {
+        match self {
+            AnyStore::Fjall(s) => s.put_bookmark_bytes(name, value).map_err(Into::into),
+            AnyStore::Rocks(s) => s.put_bookmark_bytes(name, value).map_err(Into::into),
+        }
+    }
 }
 
 pub struct AppContext {

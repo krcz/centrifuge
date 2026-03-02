@@ -3,7 +3,7 @@ use polyepoxide_core::{Bond, Cell, Oxide, Solvent, Store, key_from_cid};
 use polyepoxide_llm::{ContentBlock, GenerationParams, Message, MessageContent};
 use silane_openrouter::{OpenRouterClient, OpenRouterError, OpenRouterRequest};
 use std::sync::Arc;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 
 use crate::error::SihError;
 use crate::store::{AnyStore, AppContext};
@@ -141,7 +141,10 @@ impl ChatApp {
         let user_msg = Message {
             content: MessageContent::User(vec![ContentBlock::Text(text)]),
             metadata: None,
-            previous: self.conversation_head.as_ref().map(|c| Bond::from_cell(Arc::clone(c))),
+            previous: self
+                .conversation_head
+                .as_ref()
+                .map(|c| Bond::from_cell(Arc::clone(c))),
         };
         let user_cell = self.solvent.add(user_msg);
 
@@ -161,21 +164,24 @@ impl ChatApp {
         let request = OpenRouterRequest {
             model: self.model.clone(),
             conversation_head: Bond::from_cell(Arc::clone(&user_cell)),
-            params: self.reasoning_effort.as_ref().map(|effort| GenerationParams {
-                temperature: None,
-                top_p: None,
-                top_k: None,
-                max_tokens: None,
-                frequency_penalty: None,
-                presence_penalty: None,
-                stop: None,
-                min_p: None,
-                top_a: None,
-                repetition_penalty: None,
-                seed: None,
-                reasoning_effort: Some(effort.clone()),
-                reasoning_max_tokens: None,
-            }),
+            params: self
+                .reasoning_effort
+                .as_ref()
+                .map(|effort| GenerationParams {
+                    temperature: None,
+                    top_p: None,
+                    top_k: None,
+                    max_tokens: None,
+                    frequency_penalty: None,
+                    presence_penalty: None,
+                    stop: None,
+                    min_p: None,
+                    top_a: None,
+                    repetition_penalty: None,
+                    seed: None,
+                    reasoning_effort: Some(effort.clone()),
+                    reasoning_max_tokens: None,
+                }),
             tools: vec![],
             tool_choice: None,
         };
@@ -347,11 +353,7 @@ impl ChatApp {
 
         while let Some(cell) = current {
             messages.push(cell.value());
-            current = cell
-                .value()
-                .previous
-                .as_ref()
-                .and_then(|b| b.cell());
+            current = cell.value().previous.as_ref().and_then(|b| b.cell());
         }
 
         messages.reverse();

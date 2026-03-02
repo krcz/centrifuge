@@ -4,7 +4,7 @@ use polyepoxide_llm::{
     ContentBlock, GenerationParams, ImageData, Message, MessageContent, MessageMetadata,
     TokenUsage, ToolCall,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::error::OpenRouterError;
 use crate::types::{OpenRouterRequest, ToolChoice, ToolDefinition};
@@ -15,7 +15,9 @@ pub fn collect_messages(head: &Bond<Message>) -> Result<Vec<&Message>, OpenRoute
     let mut current = Some(head);
 
     while let Some(bond) = current {
-        let msg = bond.value().ok_or_else(|| OpenRouterError::UnresolvedBond(bond.cid()))?;
+        let msg = bond
+            .value()
+            .ok_or_else(|| OpenRouterError::UnresolvedBond(bond.cid()))?;
         messages.push(msg);
         current = msg.previous.as_ref();
     }

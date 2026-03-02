@@ -3,12 +3,14 @@
 use std::path::Path;
 
 use polyepoxide_core::Store;
-use rocksdb::{DB, Options};
+use rocksdb::{ColumnFamilyDescriptor, DB, Options};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 #[error("RocksDB error: {0}")]
 pub struct RocksError(#[from] rocksdb::Error);
+
+const BOOKMARKS_CF: &str = "bookmarks";
 
 /// A persistent store backed by RocksDB.
 pub struct RocksStore {
@@ -22,7 +24,15 @@ impl RocksStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RocksError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
-        let db = DB::open(&opts, path)?;
+        opts.create_missing_column_families(true);
+        let db = DB::open_cf_descriptors(
+            &opts,
+            path,
+            vec![
+                ColumnFamilyDescriptor::new("default", Options::default()),
+                ColumnFamilyDescriptor::new(BOOKMARKS_CF, Options::default()),
+            ],
+        )?;
         Ok(Self { db })
     }
 }
@@ -42,12 +52,31 @@ impl Store for RocksStore {
     fn has(&self, key: &[u8]) -> Result<bool, Self::Error> {
         Ok(self.db.get_pinned(key)?.is_some())
     }
+
+    fn get_bookmark_bytes(&self, name: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        let cf = self
+            .db
+            .cf_handle(BOOKMARKS_CF)
+            .expect("missing bookmarks cf");
+        Ok(self.db.get_cf(cf, name.as_bytes())?)
+    }
+
+    fn put_bookmark_bytes(&self, name: &str, value: &[u8]) -> Result<(), Self::Error> {
+        let cf = self
+            .db
+            .cf_handle(BOOKMARKS_CF)
+            .expect("missing bookmarks cf");
+        self.db.put_cf(cf, name.as_bytes(), value)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polyepoxide_core::{POLYEPOXIDE_REFLEXIVE_CODEC, compute_cid, key_from_cid, with_codec};
+    use polyepoxide_core::{
+        Bond, DynBond, POLYEPOXIDE_REFLEXIVE_CODEC, compute_cid, key_from_cid, with_codec,
+    };
     use tempfile::TempDir;
 
     fn temp_store() -> (RocksStore, TempDir) {
@@ -123,5 +152,22 @@ mod tests {
         store.put(&dag_key, b"hello").unwrap();
         assert_eq!(store.get(&reflexive_key).unwrap(), Some(b"hello".to_vec()));
         assert!(store.has(&reflexive_key).unwrap());
+    }
+
+    #[test]
+    fn bookmark_persistence() {
+        let dir = TempDir::new().unwrap();
+        let bookmark = DynBond::from_typed(Bond::new("hello".to_string()));
+
+        {
+            let store = RocksStore::open(dir.path()).unwrap();
+            store.put_bookmark("greeting", &bookmark).unwrap();
+        }
+
+        {
+            let store = RocksStore::open(dir.path()).unwrap();
+            let loaded = store.get_bookmark("greeting").unwrap();
+            assert_eq!(loaded.unwrap().cid(), bookmark.cid());
+        }
     }
 }

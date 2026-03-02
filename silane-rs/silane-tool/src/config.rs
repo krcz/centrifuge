@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use crate::error::SihError;
-use crate::store::{default_store_path, StoreType};
+use crate::store::{StoreType, default_store_path};
 
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
@@ -11,6 +11,8 @@ pub struct Config {
     pub google_access_token: Option<String>,
     #[serde(default)]
     pub store: StoreConfig,
+    #[serde(default)]
+    pub gcal: GcalConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,6 +29,17 @@ impl Default for StoreConfig {
             path: None,
         }
     }
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct GcalConfig {
+    #[serde(default)]
+    pub import: GcalImportConfig,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct GcalImportConfig {
+    pub bookmark: Option<String>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -95,4 +108,44 @@ pub fn resolve_store_config(
         .unwrap_or_else(default_store_path);
 
     (store_type, store_path)
+}
+
+pub fn resolve_gcal_import_bookmark() -> String {
+    let config = load_config();
+    gcal_import_bookmark(&config)
+}
+
+fn gcal_import_bookmark(config: &Config) -> String {
+    config
+        .gcal
+        .import
+        .bookmark
+        .clone()
+        .filter(|bookmark| !bookmark.is_empty())
+        .unwrap_or_else(|| "calendars".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gcal_import_bookmark_uses_default_name() {
+        let config = Config::default();
+        assert_eq!(gcal_import_bookmark(&config), "calendars");
+    }
+
+    #[test]
+    fn gcal_import_bookmark_uses_configured_name() {
+        let config = Config {
+            gcal: GcalConfig {
+                import: GcalImportConfig {
+                    bookmark: Some("google-calendars".to_string()),
+                },
+            },
+            ..Config::default()
+        };
+
+        assert_eq!(gcal_import_bookmark(&config), "google-calendars");
+    }
 }

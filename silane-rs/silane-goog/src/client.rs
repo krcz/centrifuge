@@ -11,7 +11,8 @@ use crate::convert::convert_event;
 use crate::convert::convert_task;
 use crate::error::GoogleError;
 
-type HttpsConnector = hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>;
+type HttpsConnector =
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>;
 
 /// Info about a calendar (for listing)
 #[derive(Debug, Clone)]
@@ -246,7 +247,10 @@ mod tests {
         let token = std::env::var("GOOGLE_ACCESS_TOKEN").expect("GOOGLE_ACCESS_TOKEN not set");
         let client = GoogleClient::new(&token).await.unwrap();
         let mut solvent = Solvent::new();
-        let calendar = client.fetch_calendar("primary", &mut solvent).await.unwrap();
+        let calendar = client
+            .fetch_calendar("primary", &mut solvent)
+            .await
+            .unwrap();
         let cal = calendar.value().unwrap();
         println!("Calendar: {}", cal.name);
         println!("Events: {}", cal.events.len());

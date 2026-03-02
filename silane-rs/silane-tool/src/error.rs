@@ -7,7 +7,9 @@ pub enum SihError {
     #[error("API key not found. Set OPENROUTER_API_KEY or configure ~/.config/silane/config.toml")]
     ApiKeyNotFound,
 
-    #[error("Google access token not found. Set GOOGLE_ACCESS_TOKEN or configure ~/.config/silane/config.toml")]
+    #[error(
+        "Google access token not found. Set GOOGLE_ACCESS_TOKEN or configure ~/.config/silane/config.toml"
+    )]
     GoogleTokenNotFound,
 
     #[error("Config error: {0}")]

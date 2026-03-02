@@ -37,7 +37,7 @@ serde = { version = "1", features = ["derive"] }
 Common imports:
 
 ```rust
-use polyepoxide_core::{oxide, Bond, Cell, Cursor, MemoryStore, Oxide, Solvent};
+use polyepoxide_core::{oxide, Bond, Catalogue, Cell, Cursor, DynBond, MemoryStore, Oxide, Solvent};
 use polyepoxide_core::{Store, key_from_cid, pull, push};
 ```
 
@@ -48,6 +48,7 @@ use polyepoxide_core::{Store, key_from_cid, pull, push};
 - Build and mutate values ephemerally first.
 - Insert into `Solvent` (`add` / `bond`) to deduplicate and stabilize references.
 - Persist and sync using `(value_cid, schema_cid)` pairs.
+- Give each app its own default bookmark, with a config override for the bookmark name.
 - Prefer `Cursor` for traversal of solvent-managed data.
 - Prefer compact end-to-end integration tests over many tiny unit tests.
 
@@ -123,6 +124,14 @@ Store backends:
 - `MemoryStore` for tests
 - `FjallStore` and `RocksStore` from sibling crates for persistence
 
+Bookmarks:
+
+- Use bookmarks for mutable app entry points.
+- Store `DynBond`, not bare CIDs.
+- Each app should own one default top-level bookmark.
+- If the app has many named roots, point that bookmark at a `Catalogue`.
+- Per-entry names then live inside the `Catalogue`, not as shared global bookmarks.
+
 ## Loading from Store
 
 Load a root value:
@@ -134,6 +143,10 @@ let cell = solvent.add(value);
 ```
 
 For linked graphs, load dependencies before parents so bonds resolve on add.
+
+When loading via bookmark, read the bookmark first and use its `cid()` and
+`schema_cid()`. If the bookmark points to a `Catalogue`, load the catalogue and
+then pick the desired entry.
 
 ## Sync Pattern
 
@@ -183,7 +196,8 @@ Most applications should not need schema-guided traversal.
 3. While converting, create child references with `solvent.bond(child)`.
 4. Return ephemeral parents and add them to solvent at orchestration boundaries.
 5. Persist root cells with `persist_cell`.
-6. Store and propagate `(value_cid, schema_cid)` as the app state handle.
+6. Update the app bookmark after persisting.
+7. Store and propagate `(value_cid, schema_cid)` as the app state handle when needed.
 
 ## Testing Guidance
 
@@ -192,6 +206,7 @@ Minimum useful coverage for feature work:
 - Oxide roundtrip (`to_bytes` / `from_bytes`)
 - Solvent insertion and bond resolution behavior
 - Persist/load roundtrip using selected store backend
+- Bookmark roundtrip for the app's default bookmark
 
 Sync tests:
 

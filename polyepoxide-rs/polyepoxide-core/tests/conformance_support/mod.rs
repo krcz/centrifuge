@@ -230,5 +230,7 @@ pub fn resolve_bench_into_solvent(
 }
 
 pub fn bench_components_resolved(bench: &ReactionBench) -> bool {
-    bench.substrate.value().is_some() && bench.reagent.value().is_some() && bench.solvent.value().is_some()
+    bench.substrate.value().is_some()
+        && bench.reagent.value().is_some()
+        && bench.solvent.value().is_some()
 }

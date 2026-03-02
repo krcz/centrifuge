@@ -154,7 +154,8 @@ impl GraphBuilder {
                 Ok(DocNode::Object(out))
             }
             (Ipld::List(values), Structure::Sequence(inner)) => {
-                let (inner_schema, inner_schema_scope) = cursor.resolve_child_schema(inner.cid())?;
+                let (inner_schema, inner_schema_scope) =
+                    cursor.resolve_child_schema(inner.cid())?;
                 let child_cursor = cursor.with_schema(inner_schema.cid(), inner_schema_scope);
                 let mut out = Vec::with_capacity(values.len());
                 for value in values {
@@ -193,7 +194,8 @@ impl GraphBuilder {
             }
             (Ipld::String(name), Structure::Tagged(variants)) => {
                 if let Some(variant_schema_bond) = variants.get(name) {
-                    let (variant_schema, _) = cursor.resolve_child_schema(variant_schema_bond.cid())?;
+                    let (variant_schema, _) =
+                        cursor.resolve_child_schema(variant_schema_bond.cid())?;
                     if matches!(variant_schema.value(), Structure::Unit) {
                         return Ok(DocNode::String(name.clone()));
                     }
@@ -218,7 +220,8 @@ impl GraphBuilder {
                 Err(self.type_mismatch::<S>(ipld, schema))
             }
             (Ipld::Map(map), Structure::Map { value, .. }) => {
-                let (value_schema, value_schema_scope) = cursor.resolve_child_schema(value.cid())?;
+                let (value_schema, value_schema_scope) =
+                    cursor.resolve_child_schema(value.cid())?;
                 let child_cursor = cursor.with_schema(value_schema.cid(), value_schema_scope);
                 let mut out = IndexMap::new();
                 for (key, map_value) in map {
@@ -231,7 +234,8 @@ impl GraphBuilder {
             }
             (Ipld::List(entries), Structure::OrderedMap { key, value }) => {
                 let (key_schema, key_schema_scope) = cursor.resolve_child_schema(key.cid())?;
-                let (value_schema, value_schema_scope) = cursor.resolve_child_schema(value.cid())?;
+                let (value_schema, value_schema_scope) =
+                    cursor.resolve_child_schema(value.cid())?;
                 let key_cursor = cursor.with_schema(key_schema.cid(), key_schema_scope);
                 let value_cursor = cursor.with_schema(value_schema.cid(), value_schema_scope);
                 let mut out = Vec::with_capacity(entries.len());
@@ -245,7 +249,7 @@ impl GraphBuilder {
                             return Err(ExportError::Format(format!(
                                 "ordered map entry must be a two-element list, found {:?}",
                                 other
-                            )))
+                            )));
                         }
                     }
                 }
@@ -266,7 +270,11 @@ impl GraphBuilder {
         }
     }
 
-    fn type_mismatch<S: Store + ?Sized>(&self, ipld: &Ipld, schema: &Structure) -> ExportError<S::Error> {
+    fn type_mismatch<S: Store + ?Sized>(
+        &self,
+        ipld: &Ipld,
+        schema: &Structure,
+    ) -> ExportError<S::Error> {
         ExportError::Format(format!(
             "typed export mismatch: value {:?} does not match schema {:?}",
             ipld, schema
@@ -293,9 +301,9 @@ impl GraphBuilder {
         }
 
         if is_reflexive_cid(&target_cid) {
-            let ligation = cursor
-                .ligation_term(target_cid)?
-                .ok_or_else(|| ExportError::Format(format!("invalid ligation payload for {}", target_cid)))?;
+            let ligation = cursor.ligation_term(target_cid)?.ok_or_else(|| {
+                ExportError::Format(format!("invalid ligation payload for {}", target_cid))
+            })?;
             out.insert(
                 LIGATION_KEY.to_string(),
                 self.ligation_to_doc(
@@ -307,7 +315,10 @@ impl GraphBuilder {
                 )?,
             );
         } else {
-            out.insert(LINK_KEY.to_string(), DocNode::String(target_cid.to_string()));
+            out.insert(
+                LINK_KEY.to_string(),
+                DocNode::String(target_cid.to_string()),
+            );
         }
 
         let should_include_value = match self.profile {
@@ -452,8 +463,9 @@ impl GraphBuilder {
             resolve_schema_cid(store, schemas, schema_cid, schema_scope)?;
 
         if is_reflexive_cid(&cid) {
-            let ligation = load_ligation(store, cid)?
-                .ok_or_else(|| ExportError::Format(format!("invalid ligation payload for {}", cid)))?;
+            let ligation = load_ligation(store, cid)?.ok_or_else(|| {
+                ExportError::Format(format!("invalid ligation payload for {}", cid))
+            })?;
             out.insert(
                 LIGATION_KEY.to_string(),
                 self.ligation_to_doc(store, schemas, &ligation, schema_cid, schema_scope)?,
@@ -470,7 +482,8 @@ impl GraphBuilder {
         }
 
         if matches!(self.profile, ExportProfile::Canonical | ExportProfile::Full) {
-            let (resolved_value_cid, resolved_scope) = resolve_reflexive_edge(store, cid, value_scope)?;
+            let (resolved_value_cid, resolved_scope) =
+                resolve_reflexive_edge(store, cid, value_scope)?;
             let cursor = StoreCursor::with_state(
                 store,
                 schemas,
@@ -496,7 +509,10 @@ fn render_json_ld(node: &DocNode, pretty: bool) -> Result<String, String> {
     let mut value = doc_to_json(node, true);
     if let JsonValue::Object(ref mut obj) = value {
         let mut context = JsonMap::new();
-        context.insert("@vocab".to_string(), JsonValue::String("urn:px:".to_string()));
+        context.insert(
+            "@vocab".to_string(),
+            JsonValue::String("urn:px:".to_string()),
+        );
         obj.insert("@context".to_string(), JsonValue::Object(context));
     }
 
@@ -511,14 +527,8 @@ fn render_yaml_ld(node: &DocNode) -> Result<String, String> {
     let mut value = doc_to_yaml(node, true, false);
     if let YamlValue::Mapping(ref mut map) = value {
         let mut context = YamlMapping::new();
-        context.insert(
-            yaml_string("@vocab"),
-            yaml_string("urn:px:"),
-        );
-        map.insert(
-            yaml_string("@context"),
-            YamlValue::Mapping(context),
-        );
+        context.insert(yaml_string("@vocab"), yaml_string("urn:px:"));
+        map.insert(yaml_string("@context"), YamlValue::Mapping(context));
     }
     serde_yaml_bw::to_string(&value).map_err(|e| e.to_string())
 }
@@ -540,7 +550,12 @@ fn doc_to_json(node: &DocNode, linked_data: bool) -> JsonValue {
             .map(JsonValue::Number)
             .unwrap_or(JsonValue::Null),
         DocNode::String(value) => JsonValue::String(value.clone()),
-        DocNode::Array(values) => JsonValue::Array(values.iter().map(|value| doc_to_json(value, linked_data)).collect()),
+        DocNode::Array(values) => JsonValue::Array(
+            values
+                .iter()
+                .map(|value| doc_to_json(value, linked_data))
+                .collect(),
+        ),
         DocNode::Object(map) => {
             let mut out = JsonMap::new();
             for (key, value) in map {
@@ -623,10 +638,7 @@ fn doc_to_yaml(node: &DocNode, linked_data: bool, use_aliases: bool) -> YamlValu
             } else {
                 YamlMapping::new()
             };
-            out.insert(
-                yaml_string(id_key),
-                yaml_string(id.clone()),
-            );
+            out.insert(yaml_string(id_key), yaml_string(id.clone()));
             out.insert(
                 yaml_string("data"),
                 doc_to_yaml(data, linked_data, use_aliases),
@@ -637,10 +649,7 @@ fn doc_to_yaml(node: &DocNode, linked_data: bool, use_aliases: bool) -> YamlValu
         DocNode::Ref(id) => {
             let id_key = if linked_data { "@id" } else { "id" };
             let mut out = YamlMapping::new();
-            out.insert(
-                yaml_string(id_key),
-                yaml_string(id.clone()),
-            );
+            out.insert(yaml_string(id_key), yaml_string(id.clone()));
             YamlValue::Mapping(out)
         }
     }
@@ -716,12 +725,10 @@ mod tests {
         let solvent = Solvent::new();
         let root = solvent.add(Ring {
             name: "root".into(),
-            next: Bond::from_ligation(Ligation::Ligase(vec![ErasedBond::from(
-                &Bond::new(Ring {
-                    name: "child".into(),
-                    next: Bond::from_cid(crate::slot_cid(0)),
-                }),
-            )])),
+            next: Bond::from_ligation(Ligation::Ligase(vec![ErasedBond::from(&Bond::new(Ring {
+                name: "child".into(),
+                next: Bond::from_cid(crate::slot_cid(0)),
+            }))])),
         });
         let store = MemoryStore::new();
         let (value_cid, schema_cid) = solvent.persist_cell(&root, &store).unwrap();

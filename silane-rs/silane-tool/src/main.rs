@@ -79,9 +79,7 @@ async fn main() -> anyhow::Result<()> {
             let api_key = load_api_key()?;
             let client = OpenRouterClient::new(api_key);
 
-            let continue_cid = continue_from
-                .map(|s| Cid::from_str(&s))
-                .transpose()?;
+            let continue_cid = continue_from.map(|s| Cid::from_str(&s)).transpose()?;
 
             chat::run(ctx, client, model, reasoning, continue_cid).await?;
         }
@@ -89,9 +87,7 @@ async fn main() -> anyhow::Result<()> {
             action,
             access_token,
         } => {
-            let token = access_token
-                .map(Ok)
-                .unwrap_or_else(load_google_token)?;
+            let token = access_token.map(Ok).unwrap_or_else(load_google_token)?;
             gcal::run(ctx, &token, action).await?;
         }
     }

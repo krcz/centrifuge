@@ -9,7 +9,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use polyepoxide_core::{ExportFormat, ExportOptions, export};
+use polyepoxide_core::{export, ExportFormat, ExportOptions};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_tree_widget::TreeState;
 

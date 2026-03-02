@@ -1,4 +1,4 @@
-use polyepoxide_core::{oxide, Bond};
+use polyepoxide_core::{Bond, oxide};
 use polyepoxide_llm::{GenerationParams, Message};
 
 /// Definition of a tool that can be used by the model.

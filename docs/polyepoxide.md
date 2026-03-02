@@ -22,6 +22,7 @@ Polyepoxide is pre-alpha. Format details, schema representation, and APIs may ch
 - **erased bond**: `Bond<?>`, a type-erased/wildcard/existential view of a bond used when concrete type parameters are unknown during traversal.
 - `DynamicBond`: schema-carrying erased bond pairing `Bond<Structure>` with an **erased bond**.
 - `Catalogue`: oxide record containing named dynamic bonds (`items: map<string, DynamicBond>`).
+- `Bookmark`: mutable store-level mapping from `string` to `DynamicBond`, stored outside the content-addressed keyspace.
 - `BondVisitor`: callback/visitor used for outbound reference discovery; receives bond target CIDs, not full bond state.
 - `Ligation`: reflexive mechanism represented by `Ligase` and `Slot`, used for templates and cyclic data.
 - `Solvent`: in-memory deduplicating graph manager that internalizes and resolves bonds.
@@ -147,9 +148,36 @@ When asked to resolve a bond, cursor first attempts solvent-based CID resolution
 
 ### Store
 
-Store is intentionally minimal: it maps multihash bytes to raw bytes. It does not own CID semantics and does not perform codec conversions. CID-to-multihash conversion happens outside store operations.
+Store is intentionally minimal on the content-addressed side: it maps multihash bytes to raw bytes. It does not own CID semantics and does not perform codec conversions. CID-to-multihash conversion happens outside store operations.
 
 This boundary is important. Because store indexing is hash-based, different CIDs with the same multihash naturally map to the same stored payload. That property is used by reflexive/data dual-CID workflows where codec differs but content hash remains identical. Many store implementations can coexist behind this interface, including in-memory stores, filesystem stores, embedded databases, and remote/object stores.
+
+Stores may additionally expose a mutable bookmark namespace that maps names to `DynamicBond` values. Bookmarks are not content-addressed themselves. They are convenience references layered on top of the multihash-indexed block store, and implementations may realize them either through a dedicated metadata mechanism or by storing a single content-addressed `Catalogue` root plus whatever local pointer is needed to find it.
+
+#### Store Bookmarks
+
+Bookmark storage is intentionally separate from block storage.
+
+- Content-addressed blocks are keyed by multihash bytes.
+- Bookmarks are keyed by application-chosen names.
+- Updating a bookmark does not rewrite existing content-addressed blocks; it only changes the mutable name-to-reference mapping.
+
+The logical bookmark value is `DynamicBond`, not just a bare CID. That allows a bookmark to carry both:
+
+- the value reference (`bond`)
+- the schema reference (`schema`)
+
+This matters because many store-level operations need both roots together. A bookmark can therefore point directly at an application root without requiring callers to maintain a separate schema lookup table.
+
+Implementations may choose different internal layouts:
+
+- store serialized `DynamicBond` bytes directly in a metadata namespace
+- store a single bookmark that points to a `Catalogue`, then keep many named entries inside that `Catalogue`
+- use any equivalent mechanism that presents the same external behavior
+
+The second pattern is useful when an application wants one mutable top-level bookmark such as `calendars`, while the actual per-object names live as entries inside the bookmarked `Catalogue`.
+
+From the caller's perspective, bookmark operations are store-level metadata operations. They are not part of DAG traversal, do not participate in CID derivation, and are not discovered by `visit_bonds` unless the bookmarked object itself is persisted as normal oxide content.
 
 ## Operations and Algorithms
 
@@ -282,6 +310,11 @@ interface Store:
   get(self, hash: Hash) -> Optional<Bytes>
   put(self, hash: Hash, bytes: Bytes)
   has(self, hash: Hash) -> bool
+  get_bookmark(self, name: string) -> Optional<DynamicBond>
+  put_bookmark(self, name: string, value: DynamicBond)
+
+# Implementations may also expose lower-level bookmark byte operations
+# internally, as long as the logical interface above is preserved.
 
 interface AsyncStore:
   async_get(self, hash: Hash) -> Optional<Bytes>
@@ -332,6 +365,7 @@ A practical error model should separate structural failures from runtime/backend
 - `NotFound`: referenced hash/CID is absent.
 - `TypeMismatch`: content exists but cannot be interpreted as the requested type.
 - `DecodeError` / `FormatError`: encoded bytes are invalid for expected decoding rules.
+- `BookmarkDecodeError`: bookmark bytes exist but do not decode as `DynamicBond`.
 - `UnresolvedBond`: traversal requires a link that remains unresolved.
 - `LigationError`: invalid reflexive payload, slot out of bounds, malformed ligase scope (common subcases: empty ligase entry, slot out-of-range).
 - `StoreError`: backend failure while reading/writing bytes.
@@ -489,7 +523,7 @@ The following rules describe the current reference ruleset used by the Rust impl
 3. Identity multihash code is `0x00`.
 4. `Ligation::Slot(i)` uses an identity multihash CID whose digest is the serialized ligation payload bytes.
 5. `Ligation::Ligase(args)` uses a hashed CID (blake3-256 over serialized ligation payload bytes).
-6. Store keys are multihash bytes only (`key = cid.multihash_bytes`), independent of codec.
+6. Content-addressed store keys are multihash bytes only (`key = cid.multihash_bytes`), independent of codec.
 7. Identity multihash keys are virtual at the store overlay boundary:
    - `get(identity_key)` returns digest bytes,
    - `has(identity_key)` returns `true`,
@@ -498,6 +532,8 @@ The following rules describe the current reference ruleset used by the Rust impl
 9. `Char` values are encoded as CBOR text containing exactly one Unicode scalar value.
 10. Current optional/result encoding rules:
    - option-like values encode as sequence/cardinality-0-or-1: `[]` for none, `[x]` for some.
+11. Bookmark names live in a separate mutable namespace and must not collide with content-addressed multihash keys.
+12. The logical value of a bookmark is a schema-carrying `DynamicBond`; implementations may store equivalent lower-level bytes internally.
    - result-like values encode as a single-entry map with lowercase tag key: `{"ok": x}` or `{"err": e}`.
 
 ## Conformance and Tests

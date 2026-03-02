@@ -23,12 +23,14 @@ async fn imported_fixture_pulls_between_stores() {
     let source = MemoryStore::new();
     let (value_cid, schema_cid) = solvent.persist_cell(&cell, &source).unwrap();
     let dest = MemoryStore::new();
-    let transferred = pull(&source, &dest, value_cid, schema_cid)
-        .await
-        .unwrap();
+    let transferred = pull(&source, &dest, value_cid, schema_cid).await.unwrap();
 
     assert!(transferred.contains(&value_cid));
-    assert!(dest.async_has(&polyepoxide_core::key_from_cid(&value_cid)).await.unwrap());
+    assert!(
+        dest.async_has(&polyepoxide_core::key_from_cid(&value_cid))
+            .await
+            .unwrap()
+    );
 
     let schemas = Solvent::new();
     let _ = load_schema_recursive(&dest, &schemas, schema_cid).unwrap();
@@ -65,10 +67,12 @@ async fn imported_fixture_pushes_between_stores() {
     assert_eq!(value_cid.to_string(), FISCHER_BENCH_CID);
 
     let dest = MemoryStore::new();
-    let transferred = push(&source, &dest, value_cid, schema_cid)
-        .await
-        .unwrap();
+    let transferred = push(&source, &dest, value_cid, schema_cid).await.unwrap();
 
     assert!(transferred.contains(&value_cid));
-    assert!(dest.async_has(&polyepoxide_core::key_from_cid(&value_cid)).await.unwrap());
+    assert!(
+        dest.async_has(&polyepoxide_core::key_from_cid(&value_cid))
+            .await
+            .unwrap()
+    );
 }

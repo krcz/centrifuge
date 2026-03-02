@@ -7,6 +7,7 @@ use polyepoxide_core::Store;
 use thiserror::Error;
 
 pub const DEFAULT_KEYSPACE: &str = "data";
+pub const BOOKMARKS_KEYSPACE: &str = "bookmarks";
 
 #[derive(Debug, Error)]
 #[error("Fjall error: {0}")]
@@ -15,6 +16,7 @@ pub struct FjallError(#[from] fjall::Error);
 /// A persistent store backed by Fjall.
 pub struct FjallStore {
     keyspace: Keyspace,
+    bookmarks: Keyspace,
     _database: Database, // Keep keyspace alive
 }
 
@@ -32,8 +34,11 @@ impl FjallStore {
     pub fn open_keyspace(path: impl AsRef<Path>, keyspace: &str) -> Result<Self, FjallError> {
         let database = Database::builder(path).open()?;
         let keyspace = database.keyspace(keyspace, || KeyspaceCreateOptions::default())?;
+        let bookmarks =
+            database.keyspace(BOOKMARKS_KEYSPACE, || KeyspaceCreateOptions::default())?;
         Ok(Self {
             keyspace,
+            bookmarks,
             _database: database,
         })
     }
@@ -54,12 +59,23 @@ impl Store for FjallStore {
     fn has(&self, key: &[u8]) -> Result<bool, Self::Error> {
         self.keyspace.contains_key(key).map_err(Into::into)
     }
+
+    fn get_bookmark_bytes(&self, name: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(self.bookmarks.get(name.as_bytes())?.map(|v| v.to_vec()))
+    }
+
+    fn put_bookmark_bytes(&self, name: &str, value: &[u8]) -> Result<(), Self::Error> {
+        self.bookmarks.insert(name.as_bytes(), value)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polyepoxide_core::{POLYEPOXIDE_REFLEXIVE_CODEC, compute_cid, key_from_cid, with_codec};
+    use polyepoxide_core::{
+        Bond, DynBond, POLYEPOXIDE_REFLEXIVE_CODEC, compute_cid, key_from_cid, with_codec,
+    };
     use tempfile::TempDir;
 
     fn temp_store() -> (FjallStore, TempDir) {
@@ -135,5 +151,22 @@ mod tests {
         store.put(&dag_key, b"hello").unwrap();
         assert_eq!(store.get(&reflexive_key).unwrap(), Some(b"hello".to_vec()));
         assert!(store.has(&reflexive_key).unwrap());
+    }
+
+    #[test]
+    fn bookmark_persistence() {
+        let dir = TempDir::new().unwrap();
+        let bookmark = DynBond::from_typed(Bond::new("hello".to_string()));
+
+        {
+            let store = FjallStore::open(dir.path()).unwrap();
+            store.put_bookmark("greeting", &bookmark).unwrap();
+        }
+
+        {
+            let store = FjallStore::open(dir.path()).unwrap();
+            let loaded = store.get_bookmark("greeting").unwrap();
+            assert_eq!(loaded.unwrap().cid(), bookmark.cid());
+        }
     }
 }

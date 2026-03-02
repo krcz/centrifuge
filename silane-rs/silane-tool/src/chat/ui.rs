@@ -1,10 +1,10 @@
 use polyepoxide_llm::{ContentBlock, MessageContent};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
-    Frame,
 };
 
 use super::app::{AppMode, ChatApp};
@@ -46,7 +46,11 @@ fn render_header(frame: &mut Frame, app: &ChatApp, area: Rect) {
 
     let title = format!("sih chat - {}{}{}", app.model, reasoning_text, cid_text);
 
-    let header = Paragraph::new(title).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    let header = Paragraph::new(title).style(
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
 
     frame.render_widget(header, area);
 }
@@ -57,7 +61,9 @@ fn render_messages(frame: &mut Frame, app: &ChatApp, area: Rect) {
 
     for msg in messages {
         let (role, style, content_blocks) = match &msg.content {
-            MessageContent::User(blocks) => ("User", Style::default().fg(Color::Green), blocks.as_slice()),
+            MessageContent::User(blocks) => {
+                ("User", Style::default().fg(Color::Green), blocks.as_slice())
+            }
             MessageContent::Assistant { blocks, .. } => {
                 let model_name = msg
                     .metadata
@@ -65,14 +71,25 @@ fn render_messages(frame: &mut Frame, app: &ChatApp, area: Rect) {
                     .and_then(|m| m.model.as_ref())
                     .map(|m| m.as_str())
                     .unwrap_or("Assistant");
-                (model_name, Style::default().fg(Color::Blue), blocks.as_slice())
+                (
+                    model_name,
+                    Style::default().fg(Color::Blue),
+                    blocks.as_slice(),
+                )
             }
-            MessageContent::System(blocks) => ("System", Style::default().fg(Color::Yellow), blocks.as_slice()),
+            MessageContent::System(blocks) => (
+                "System",
+                Style::default().fg(Color::Yellow),
+                blocks.as_slice(),
+            ),
             MessageContent::ToolResult { .. } => continue, // Skip tool results in display
         };
 
         // Role header
-        lines.push(Line::from(Span::styled(format!("{}:", role), style.add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled(
+            format!("{}:", role),
+            style.add_modifier(Modifier::BOLD),
+        )));
 
         // Content blocks
         for block in content_blocks {
@@ -85,7 +102,9 @@ fn render_messages(frame: &mut Frame, app: &ChatApp, area: Rect) {
                 ContentBlock::Thinking(text) => {
                     lines.push(Line::from(Span::styled(
                         "  [Thinking]",
-                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
                     )));
                     for line in text.lines() {
                         lines.push(Line::from(Span::styled(
@@ -106,7 +125,10 @@ fn render_messages(frame: &mut Frame, app: &ChatApp, area: Rect) {
                             Style::default().fg(Color::White),
                         )));
                     }
-                    lines.push(Line::from(Span::styled("  ```", Style::default().fg(Color::Magenta))));
+                    lines.push(Line::from(Span::styled(
+                        "  ```",
+                        Style::default().fg(Color::Magenta),
+                    )));
                 }
                 ContentBlock::Image(_) => {
                     lines.push(Line::from(Span::styled(
@@ -130,7 +152,9 @@ fn render_messages(frame: &mut Frame, app: &ChatApp, area: Rect) {
     if app.mode == AppMode::Loading {
         lines.push(Line::from(Span::styled(
             "Waiting for response...",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::ITALIC),
         )));
     }
 
@@ -176,9 +200,7 @@ fn render_input(frame: &mut Frame, app: &ChatApp, area: Rect) {
         Style::default()
     };
 
-    let input_paragraph = Paragraph::new(display_text)
-        .style(style)
-        .block(input_block);
+    let input_paragraph = Paragraph::new(display_text).style(style).block(input_block);
 
     frame.render_widget(input_paragraph, area);
 
@@ -196,7 +218,9 @@ fn render_status_bar(frame: &mut Frame, app: &ChatApp, area: Rect) {
     let status = match app.mode {
         AppMode::Chat => "Enter: Send  F2: Model  F3: Reasoning  Ctrl+↑/↓: Scroll  Esc: Quit",
         AppMode::Loading => "Waiting for response...  Esc: Cancel",
-        AppMode::SelectModel | AppMode::SelectReasoning => "↑/↓: Navigate  Enter: Select  Esc: Cancel",
+        AppMode::SelectModel | AppMode::SelectReasoning => {
+            "↑/↓: Navigate  Enter: Select  Esc: Cancel"
+        }
     };
 
     let status_bar = Paragraph::new(status).style(Style::default().fg(Color::DarkGray));
@@ -211,7 +235,11 @@ fn render_popup(frame: &mut Frame, title: &str, items: Vec<ListItem>, selected: 
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(title))
-        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol("> ");
 
     let mut state = ratatui::widgets::ListState::default();

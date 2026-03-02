@@ -1,7 +1,7 @@
 use aldehyde_cal::{
     Alarm, AlarmAction, AlarmTrigger, Attendee, AttendeeRole, CalendarEvent, CalendarTodo,
-    CalendarUserType, DateTime, DateTimeValue, DateValue, Duration, Organizer,
-    ParticipationStatus, RecurrenceRule, TodoStatus,
+    CalendarUserType, DateTime, DateTimeValue, DateValue, Duration, Organizer, ParticipationStatus,
+    RecurrenceRule, TodoStatus,
 };
 use chrono::Datelike;
 use google_calendar3::api::{Event, EventAttendee, EventDateTime, EventReminder};
@@ -81,10 +81,7 @@ fn convert_datetime(edt: &EventDateTime) -> Result<DateTimeValue, GoogleError> {
         }))
     } else if let Some(ref dt) = edt.date_time {
         // Timed event (DateTime<Utc>)
-        let timezone = edt
-            .time_zone
-            .clone()
-            .unwrap_or_else(|| "UTC".to_string());
+        let timezone = edt.time_zone.clone().unwrap_or_else(|| "UTC".to_string());
         Ok(DateTimeValue::DateTime(DateTime {
             utc_timestamp: dt.timestamp(),
             timezone,

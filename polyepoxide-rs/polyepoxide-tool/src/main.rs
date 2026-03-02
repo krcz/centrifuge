@@ -9,8 +9,10 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use cid::Cid;
-use clap::{Parser, Subcommand};
-use polyepoxide_core::{ExportFormat, ExportOptions, ExportProfile, Solvent, export, load_schema_recursive};
+use clap::{Args, Parser, Subcommand};
+use polyepoxide_core::{
+    export, load_schema_recursive, ExportFormat, ExportOptions, ExportProfile, Solvent, Store,
+};
 
 use app::App;
 use store::AnyStore;
@@ -23,17 +25,27 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Args, Clone, Debug)]
+struct RootArgs {
+    /// Bookmark name for the root value
+    #[arg(long, conflicts_with_all = ["cid", "schema"])]
+    bookmark: Option<String>,
+
+    /// CID of the root value
+    #[arg(long, requires = "schema")]
+    cid: Option<String>,
+
+    /// CID of the root value's schema
+    #[arg(long, requires = "cid")]
+    schema: Option<String>,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Explore a graph in the TUI
     Explore {
-        /// CID of the root value
-        #[arg(long)]
-        cid: String,
-
-        /// CID of the root value's schema
-        #[arg(long)]
-        schema: String,
+        #[command(flatten)]
+        root: RootArgs,
 
         /// Store type: fjall or rocks
         #[arg(long, default_value = "fjall")]
@@ -46,13 +58,8 @@ enum Command {
 
     /// Export a value to YAML, JSON-LD, or YAML-LD
     Export {
-        /// CID of the root bond or value
-        #[arg(long)]
-        cid: String,
-
-        /// CID of the root value's schema
-        #[arg(long)]
-        schema: String,
+        #[command(flatten)]
+        root: RootArgs,
 
         /// Store type: fjall or rocks
         #[arg(long, default_value = "fjall")]
@@ -80,31 +87,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Explore {
-            cid,
-            schema,
-            store,
-            path,
-        } => {
-            let root_cid = Cid::from_str(&cid)?;
-            let schema_cid = Cid::from_str(&schema)?;
+        Command::Explore { root, store, path } => {
             let store = open_store(&store, &path)?;
+            let (root_cid, schema_cid) = resolve_root(&store, &root)?;
 
             let mut app = App::new(store, root_cid, schema_cid)?;
             app.run()?;
         }
         Command::Export {
-            cid,
-            schema,
+            root,
             store,
             path,
             format,
             profile,
             output,
         } => {
-            let root_cid = Cid::from_str(&cid)?;
-            let schema_cid = Cid::from_str(&schema)?;
             let store = open_store(&store, &path)?;
+            let (root_cid, schema_cid) = resolve_root(&store, &root)?;
 
             let format = match format.to_lowercase().as_str() {
                 "jsonld" | "json-ld" | "json" => ExportFormat::JsonLd,
@@ -145,5 +144,58 @@ fn open_store(store_type: &str, path: &PathBuf) -> Result<AnyStore, Box<dyn std:
         "fjall" => Ok(AnyStore::open_fjall(path)?),
         "rocks" | "rocksdb" => Ok(AnyStore::open_rocks(path)?),
         _ => Err(format!("unknown store type: {}", store_type).into()),
+    }
+}
+
+fn resolve_root<S: Store>(
+    store: &S,
+    root: &RootArgs,
+) -> Result<(Cid, Cid), Box<dyn std::error::Error>> {
+    if let Some(bookmark) = &root.bookmark {
+        let bookmark = store
+            .get_bookmark(bookmark)?
+            .ok_or_else(|| format!("bookmark not found: {}", bookmark))?;
+        return Ok((bookmark.cid(), bookmark.schema_cid()));
+    }
+
+    match (&root.cid, &root.schema) {
+        (Some(cid), Some(schema)) => Ok((Cid::from_str(cid)?, Cid::from_str(schema)?)),
+        _ => Err("provide either --bookmark or both --cid and --schema".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use polyepoxide_core::{Bond, DynBond, MemoryStore};
+
+    #[test]
+    fn resolve_root_from_bookmark() {
+        let store = MemoryStore::new();
+        let bookmark = DynBond::from_typed(Bond::new("hello".to_string()));
+        store.put_bookmark("root", &bookmark).unwrap();
+
+        let root = RootArgs {
+            bookmark: Some("root".to_string()),
+            cid: None,
+            schema: None,
+        };
+
+        let resolved = resolve_root(&store, &root).unwrap();
+        assert_eq!(resolved, (bookmark.cid(), bookmark.schema_cid()));
+    }
+
+    #[test]
+    fn resolve_root_from_cid_and_schema() {
+        let store = MemoryStore::new();
+        let bookmark = DynBond::from_typed(Bond::new("hello".to_string()));
+        let root = RootArgs {
+            bookmark: None,
+            cid: Some(bookmark.cid().to_string()),
+            schema: Some(bookmark.schema_cid().to_string()),
+        };
+
+        let resolved = resolve_root(&store, &root).unwrap();
+        assert_eq!(resolved, (bookmark.cid(), bookmark.schema_cid()));
     }
 }

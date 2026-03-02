@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::RwLock;
 
+use crate::dyn_bond::DynBond;
+use crate::oxide::Oxide;
 use crate::reflexive::MULTIHASH_IDENTITY;
 
 /// Returns store key bytes derived from CID multihash.
@@ -18,11 +20,27 @@ pub fn identity_digest_from_key(key: &[u8]) -> Option<Vec<u8>> {
     (hash.code() == MULTIHASH_IDENTITY).then(|| hash.digest().to_vec())
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum BookmarkError<E: std::error::Error + Send + Sync + 'static> {
+    #[error(transparent)]
+    Store(#[from] E),
+    #[error("invalid bookmark `{name}`")]
+    Decode {
+        name: String,
+        #[source]
+        source: serde_ipld_dagcbor::DecodeError<Infallible>,
+    },
+}
+
 /// A simple store for oxide bytes, indexed by CID multihash.
 ///
 /// Stores operate on raw bytes — serialization/deserialization is handled
 /// by higher layers (Solvent). Stores have no knowledge of oxide types,
 /// schemas, or sync configuration.
+///
+/// Stores may also expose mutable named bookmarks. The bookmark value is a
+/// serialized `DynBond`, but implementations are free to represent that
+/// mapping however they want internally.
 ///
 /// All methods take `&self` to support stores with internal locking (e.g., RocksDB).
 pub trait Store {
@@ -36,6 +54,34 @@ pub trait Store {
 
     /// Checks whether a multihash key exists in the store.
     fn has(&self, key: &[u8]) -> Result<bool, Self::Error>;
+
+    /// Retrieves raw bookmark bytes for a name.
+    fn get_bookmark_bytes(&self, name: &str) -> Result<Option<Vec<u8>>, Self::Error>;
+
+    /// Stores raw bookmark bytes for a name.
+    fn put_bookmark_bytes(&self, name: &str, value: &[u8]) -> Result<(), Self::Error>;
+
+    /// Retrieves a bookmark as a dynamic bond.
+    fn get_bookmark(&self, name: &str) -> Result<Option<DynBond>, BookmarkError<Self::Error>> {
+        self.get_bookmark_bytes(name)?
+            .map(|bytes| {
+                DynBond::from_bytes(&bytes).map_err(|source| BookmarkError::Decode {
+                    name: name.to_string(),
+                    source,
+                })
+            })
+            .transpose()
+    }
+
+    /// Stores a bookmark as a dynamic bond.
+    fn put_bookmark(
+        &self,
+        name: &str,
+        bookmark: &DynBond,
+    ) -> Result<(), BookmarkError<Self::Error>> {
+        self.put_bookmark_bytes(name, &bookmark.to_bytes())?;
+        Ok(())
+    }
 }
 
 /// Wraps a store with identity-multihash virtual CID handling.
@@ -77,6 +123,14 @@ impl<S: Store + ?Sized> Store for IdentityStoreOverlay<'_, S> {
         }
         self.inner.has(key)
     }
+
+    fn get_bookmark_bytes(&self, name: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.inner.get_bookmark_bytes(name)
+    }
+
+    fn put_bookmark_bytes(&self, name: &str, value: &[u8]) -> Result<(), Self::Error> {
+        self.inner.put_bookmark_bytes(name, value)
+    }
 }
 
 impl<S: Store + ?Sized> Store for &S {
@@ -93,6 +147,14 @@ impl<S: Store + ?Sized> Store for &S {
     fn has(&self, key: &[u8]) -> Result<bool, Self::Error> {
         (*self).has(key)
     }
+
+    fn get_bookmark_bytes(&self, name: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        (*self).get_bookmark_bytes(name)
+    }
+
+    fn put_bookmark_bytes(&self, name: &str, value: &[u8]) -> Result<(), Self::Error> {
+        (*self).put_bookmark_bytes(name, value)
+    }
 }
 
 /// An in-memory store backed by a HashMap.
@@ -101,6 +163,7 @@ impl<S: Store + ?Sized> Store for &S {
 #[derive(Debug, Default)]
 pub struct MemoryStore {
     data: RwLock<HashMap<Vec<u8>, Vec<u8>>>,
+    bookmarks: RwLock<HashMap<String, Vec<u8>>>,
 }
 
 impl MemoryStore {
@@ -128,11 +191,25 @@ impl Store for MemoryStore {
     fn has(&self, key: &[u8]) -> Result<bool, Self::Error> {
         Ok(self.data.read().unwrap().contains_key(key))
     }
+
+    fn get_bookmark_bytes(&self, name: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(self.bookmarks.read().unwrap().get(name).cloned())
+    }
+
+    fn put_bookmark_bytes(&self, name: &str, value: &[u8]) -> Result<(), Self::Error> {
+        self.bookmarks
+            .write()
+            .unwrap()
+            .insert(name.to_string(), value.to_vec());
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Bond;
+    use crate::DynBond;
     use crate::oxide::compute_cid;
     use crate::reflexive::{POLYEPOXIDE_REFLEXIVE_CODEC, make_identity_cid, with_codec};
 
@@ -219,6 +296,26 @@ mod tests {
         store.put(&reflexive_key, b"value-b").unwrap();
         assert_eq!(store.get(&dag_key).unwrap(), Some(b"value-b".to_vec()));
         assert_eq!(store.len_impl(), 1);
+    }
+
+    #[test]
+    fn memory_store_bookmark_roundtrip() {
+        let store = MemoryStore::new();
+        let bookmark = DynBond::from_typed(Bond::new("hello".to_string()));
+
+        store.put_bookmark("greeting", &bookmark).unwrap();
+
+        let loaded = store.get_bookmark("greeting").unwrap();
+        assert_eq!(loaded.unwrap().cid(), bookmark.cid());
+    }
+
+    #[test]
+    fn memory_store_reports_invalid_bookmark_bytes() {
+        let store = MemoryStore::new();
+        store.put_bookmark_bytes("broken", b"not dag-cbor").unwrap();
+
+        let err = store.get_bookmark("broken").unwrap_err();
+        assert!(matches!(err, BookmarkError::Decode { .. }));
     }
 }
 

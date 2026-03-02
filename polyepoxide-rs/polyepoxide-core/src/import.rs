@@ -60,7 +60,9 @@ pub enum ImportError {
     ProfileViolation(String),
     #[error("occurrence cycle requires explicit ligation: {0}")]
     CyclicHydratedValue(String),
-    #[error("CID mismatch between stored link and hydrated value: expected {expected}, got {actual}")]
+    #[error(
+        "CID mismatch between stored link and hydrated value: expected {expected}, got {actual}"
+    )]
     CidMismatch { expected: Cid, actual: Cid },
     #[error("schema resolution failed: {0}")]
     Schema(String),
@@ -207,8 +209,8 @@ fn parse_input(input: &str, format: ImportFormat) -> Result<InputNode, ImportErr
             input_from_json(value)
         }
         ImportFormat::Yaml | ImportFormat::YamlLd => {
-            let value =
-                serde_yaml_bw::from_str_value_preserve(input).map_err(|e| ImportError::Yaml(e.to_string()))?;
+            let value = serde_yaml_bw::from_str_value_preserve(input)
+                .map_err(|e| ImportError::Yaml(e.to_string()))?;
             input_from_yaml(value)
         }
     }
@@ -397,7 +399,8 @@ fn materialize_occurrence<S: Store + ?Sized>(
 
         let node = env.occurrences[index].node.clone();
         let materialized = materialize_inline(occurrence_data(&node), schema, env)?;
-        env.cache.insert((index, state.clone()), materialized.clone());
+        env.cache
+            .insert((index, state.clone()), materialized.clone());
         env.in_progress.remove(&(index, state));
         return Ok(materialized);
     }
@@ -411,7 +414,8 @@ fn materialize_inline<S: Store + ?Sized>(
     env: &mut ImportEnv<'_, S>,
 ) -> Result<MaterializedNode, ImportError> {
     let ipld = import_data(node, schema, env)?;
-    let bytes = serde_ipld_dagcbor::to_vec(&ipld).map_err(|e| ImportError::Decode(e.to_string()))?;
+    let bytes =
+        serde_ipld_dagcbor::to_vec(&ipld).map_err(|e| ImportError::Decode(e.to_string()))?;
     let cid = compute_cid(&bytes);
     env.store
         .put(&key_from_cid(&cid), &bytes)
@@ -500,21 +504,23 @@ fn import_data<S: Store + ?Sized>(
         Structure::Tagged(variants) => match &node.kind {
             InputKind::Object(map) => {
                 if let Some((name, value)) = first_non_meta(map) {
-                    let bond = variants
-                        .get(name)
-                        .ok_or_else(|| ImportError::Invalid(format!("unknown tagged variant: {}", name)))?;
+                    let bond = variants.get(name).ok_or_else(|| {
+                        ImportError::Invalid(format!("unknown tagged variant: {}", name))
+                    })?;
                     let child = schema.child(bond)?;
                     let mut out = BTreeMap::new();
                     out.insert(name.clone(), import_data(value, &child, env)?);
                     Ok(Ipld::Map(out))
                 } else {
-                    Err(ImportError::Invalid("tagged value missing variant".to_string()))
+                    Err(ImportError::Invalid(
+                        "tagged value missing variant".to_string(),
+                    ))
                 }
             }
             InputKind::String(name) => {
-                let bond = variants
-                    .get(name)
-                    .ok_or_else(|| ImportError::Invalid(format!("unknown tagged variant: {}", name)))?;
+                let bond = variants.get(name).ok_or_else(|| {
+                    ImportError::Invalid(format!("unknown tagged variant: {}", name))
+                })?;
                 let child = schema.child(bond)?;
                 if matches!(child.structure(), Structure::Unit) {
                     Ok(Ipld::String(name.clone()))
@@ -529,7 +535,9 @@ fn import_data<S: Store + ?Sized>(
                 variants
                     .iter()
                     .find(|variant| *variant == name)
-                    .ok_or_else(|| ImportError::Invalid(format!("unknown enum variant: {}", name)))?;
+                    .ok_or_else(|| {
+                        ImportError::Invalid(format!("unknown enum variant: {}", name))
+                    })?;
                 Ok(Ipld::String(name.clone()))
             }
             InputKind::Integer(index) => {
@@ -574,7 +582,7 @@ fn import_data<S: Store + ?Sized>(
                         _ => {
                             return Err(ImportError::Invalid(
                                 "ordered map entries must be two-element arrays".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -613,10 +621,7 @@ fn import_bond<S: Store + ?Sized>(
         ));
     }
 
-    if matches!(env.mode, ImportMode::Canonical)
-        && ligation.is_some()
-        && value.is_some()
-    {
+    if matches!(env.mode, ImportMode::Canonical) && ligation.is_some() && value.is_some() {
         return Err(ImportError::ProfileViolation(
             "canonical import forbids hydrated value on ligation bonds".to_string(),
         ));
@@ -772,12 +777,16 @@ fn parse_ligation<S: Store + ?Sized>(
     default_schema: Option<SchemaState>,
 ) -> Result<Ligation, ImportError> {
     let InputKind::Object(map) = &node.kind else {
-        return Err(ImportError::Invalid("ligation must be an object".to_string()));
+        return Err(ImportError::Invalid(
+            "ligation must be an object".to_string(),
+        ));
     };
 
     if let Some(slot) = map.get("Slot") {
         let index = match &slot.kind {
-            InputKind::Integer(value) if *value >= 0 && *value <= i128::from(u16::MAX) => *value as u16,
+            InputKind::Integer(value) if *value >= 0 && *value <= i128::from(u16::MAX) => {
+                *value as u16
+            }
             _ => return Err(type_mismatch("Slot integer", slot)),
         };
         return Ok(Ligation::Slot(index));
@@ -789,7 +798,11 @@ fn parse_ligation<S: Store + ?Sized>(
         };
         let mut bonds = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
-            let inherited_schema = if index == 0 { default_schema.clone() } else { None };
+            let inherited_schema = if index == 0 {
+                default_schema.clone()
+            } else {
+                None
+            };
             bonds.push(parse_erased_bond(arg, env, inherited_schema)?);
         }
         return Ok(Ligation::Ligase(bonds));
@@ -927,10 +940,9 @@ fn resolve_schema_bond(
         Bond::Link(cell) => Ok((cell, scope.to_vec())),
         Bond::Unresolved(cid) => resolve_schema_cid(solvent, cid, scope),
         Bond::Ligation(ligation) => {
-            let (cid, scope) =
-                resolve_ligation(Some(*ligation), scope).ok_or(ImportError::Schema(
-                    "schema ligation could not be resolved".to_string(),
-                ))?;
+            let (cid, scope) = resolve_ligation(Some(*ligation), scope).ok_or(
+                ImportError::Schema("schema ligation could not be resolved".to_string()),
+            )?;
             resolve_schema_cid(solvent, cid, &scope)
         }
     }
@@ -1002,10 +1014,7 @@ fn occurrence_index<S: Store + ?Sized>(
         }
         _ => {
             if let Some(anchor) = &node.anchor {
-                return Ok(env
-                    .names
-                    .get(&RefName::Anchor(anchor.clone()))
-                    .copied());
+                return Ok(env.names.get(&RefName::Anchor(anchor.clone())).copied());
             }
             Ok(None)
         }
@@ -1040,7 +1049,11 @@ fn occurrence_id(node: &InputNode) -> Result<Option<String>, ImportError> {
 
 fn occurrence_ref_id(map: &IndexMap<String, InputNode>) -> Result<Option<String>, ImportError> {
     if let Some(id) = map.get("@id").or_else(|| map.get("id")) {
-        if !map.contains_key("data") && map.keys().all(|key| key == "@id" || key == "id" || key == "@context") {
+        if !map.contains_key("data")
+            && map
+                .keys()
+                .all(|key| key == "@id" || key == "id" || key == "@context")
+        {
             let InputKind::String(id) = &id.kind else {
                 return Err(type_mismatch("string reference id", id));
             };
@@ -1069,8 +1082,8 @@ fn type_mismatch(expected: &str, node: &InputNode) -> ImportError {
 mod tests {
     use super::*;
     use crate::{
-        Bond, ErasedBond, ExportFormat, ExportOptions, ExportProfile, Ligation, MemoryStore,
-        Oxide, export, key_from_cid, resolve_reflexive_with_store,
+        Bond, ErasedBond, ExportFormat, ExportOptions, ExportProfile, Ligation, MemoryStore, Oxide,
+        export, key_from_cid, resolve_reflexive_with_store,
     };
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, crate::Oxide)]
@@ -1191,12 +1204,12 @@ mod tests {
         let (text, _, _) = export_fixture(
             Ring {
                 name: "root".into(),
-                next: Bond::from_ligation(Ligation::Ligase(vec![ErasedBond::from(
-                    &Bond::new(Ring {
+                next: Bond::from_ligation(Ligation::Ligase(vec![ErasedBond::from(&Bond::new(
+                    Ring {
                         name: "child".into(),
                         next: Bond::from_cid(crate::slot_cid(0)),
-                    }),
-                )])),
+                    },
+                ))])),
             },
             ExportFormat::JsonLd,
             ExportProfile::Full,
@@ -1254,12 +1267,12 @@ mod tests {
         let (text, value_cid, schema_cid) = export_fixture(
             Ring {
                 name: "root".into(),
-                next: Bond::from_ligation(Ligation::Ligase(vec![ErasedBond::from(
-                    &Bond::new(Ring {
+                next: Bond::from_ligation(Ligation::Ligase(vec![ErasedBond::from(&Bond::new(
+                    Ring {
                         name: "child".into(),
                         next: Bond::from_cid(crate::slot_cid(0)),
-                    }),
-                )])),
+                    },
+                ))])),
             },
             ExportFormat::JsonLd,
             ExportProfile::Full,

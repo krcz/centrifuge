@@ -68,7 +68,10 @@ fn dynamic_bond_fixture_imports_and_reexports() {
         ImportMode::Lenient,
     );
 
-    assert_eq!(imported.value.schema_cid().to_string(), REACTION_BENCH_SCHEMA_CID);
+    assert_eq!(
+        imported.value.schema_cid().to_string(),
+        REACTION_BENCH_SCHEMA_CID
+    );
     assert_eq!(imported.value.cid().to_string(), MPV_BENCH_CID);
     assert_eq!(imported.root_cid.to_string(), MPV_DYN_BOND_CID);
     assert_eq!(imported.value.compute_cid(), imported.root_cid);
