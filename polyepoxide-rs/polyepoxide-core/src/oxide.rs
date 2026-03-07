@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::bond::Bond;
+use crate::reflexive::Ligation;
 use crate::schema::Structure;
 use crate::solvent::Solvent;
 
@@ -34,6 +35,14 @@ pub trait BondVisitor {
 pub trait Oxide: Debug + Serialize + DeserializeOwned + Clone + Send + Sync + 'static {
     /// Returns the structure describing this oxide's type.
     fn schema() -> Bond<Structure>;
+
+    /// Returns an open schema template before generic parameters are instantiated.
+    ///
+    /// The default implementation returns `schema()`, which is appropriate for
+    /// non-generic or manually closed schemas.
+    fn schema_template() -> Bond<Structure> {
+        Self::schema()
+    }
 
     /// Visits all bonds contained in this oxide.
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor);
@@ -199,6 +208,10 @@ impl<T: Oxide> Oxide for Vec<T> {
         Structure::sequence(T::schema())
     }
 
+    fn schema_template() -> Bond<Structure> {
+        Structure::sequence(T::schema_template())
+    }
+
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
         for item in self {
             item.visit_bonds(visitor);
@@ -215,6 +228,10 @@ impl<T: Oxide> Oxide for Option<T> {
         Structure::option(T::schema())
     }
 
+    fn schema_template() -> Bond<Structure> {
+        Structure::option(T::schema_template())
+    }
+
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
         if let Some(inner) = self {
             inner.visit_bonds(visitor);
@@ -229,6 +246,10 @@ impl<T: Oxide> Oxide for Option<T> {
 impl<T: Oxide, E: Oxide> Oxide for Result<T, E> {
     fn schema() -> Bond<Structure> {
         Structure::result(T::schema(), E::schema())
+    }
+
+    fn schema_template() -> Bond<Structure> {
+        Structure::result(T::schema_template(), E::schema_template())
     }
 
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
@@ -255,6 +276,10 @@ where
         Structure::ordered_map(K::schema(), V::schema())
     }
 
+    fn schema_template() -> Bond<Structure> {
+        Structure::ordered_map(K::schema_template(), V::schema_template())
+    }
+
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
         for (key, value) in self {
             key.visit_bonds(visitor);
@@ -278,6 +303,10 @@ where
         Structure::map(K::schema(), V::schema())
     }
 
+    fn schema_template() -> Bond<Structure> {
+        Structure::map(K::schema_template(), V::schema_template())
+    }
+
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
         for (key, value) in self {
             key.visit_bonds(visitor);
@@ -289,6 +318,66 @@ where
         self.iter()
             .map(|(key, value)| (key.dissolve_in(solvent), value.dissolve_in(solvent)))
             .collect()
+    }
+}
+
+pub fn instantiate_schema_template(
+    template: Bond<Structure>,
+    args: &[Bond<Structure>],
+) -> Bond<Structure> {
+    instantiate_schema_bond(&template, args)
+}
+
+fn instantiate_schema_bond(
+    template: &Bond<Structure>,
+    args: &[Bond<Structure>],
+) -> Bond<Structure> {
+    match template {
+        Bond::Unresolved(cid) => Bond::from_cid(*cid),
+        Bond::Link(cell) => Bond::new(instantiate_schema_structure(cell.value(), args)),
+        Bond::Ligation(ligation) => match ligation.as_ref() {
+            Ligation::Slot(0) => Bond::from_ligation(Ligation::Slot(0)),
+            Ligation::Slot(index) => args
+                .get((*index as usize).saturating_sub(1))
+                .cloned()
+                .unwrap_or_else(|| Bond::from_ligation(Ligation::Slot(*index))),
+            // Nested ligases introduce their own scope and must remain intact.
+            Ligation::Ligase(_) => template.clone(),
+        },
+    }
+}
+
+fn instantiate_schema_structure(template: &Structure, args: &[Bond<Structure>]) -> Structure {
+    match template {
+        Structure::Sequence(inner) => Structure::Sequence(instantiate_schema_bond(inner, args)),
+        Structure::Tuple(elements) => Structure::Tuple(
+            elements
+                .iter()
+                .map(|element| instantiate_schema_bond(element, args))
+                .collect(),
+        ),
+        Structure::Record(fields) => Structure::Record(
+            fields
+                .iter()
+                .map(|(key, value)| (key.clone(), instantiate_schema_bond(value, args)))
+                .collect(),
+        ),
+        Structure::Tagged(variants) => Structure::Tagged(
+            variants
+                .iter()
+                .map(|(key, value)| (key.clone(), instantiate_schema_bond(value, args)))
+                .collect(),
+        ),
+        Structure::Map { key, value } => Structure::Map {
+            key: instantiate_schema_bond(key, args),
+            value: instantiate_schema_bond(value, args),
+        },
+        Structure::OrderedMap { key, value } => Structure::OrderedMap {
+            key: instantiate_schema_bond(key, args),
+            value: instantiate_schema_bond(value, args),
+        },
+        Structure::Bond(inner) => Structure::Bond(instantiate_schema_bond(inner, args)),
+        other => other.clone(),
     }
 }
 

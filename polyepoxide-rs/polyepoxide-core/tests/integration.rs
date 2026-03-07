@@ -1,9 +1,12 @@
 //! Integration tests demonstrating nested structures with bonds.
 
+use indexmap::IndexMap;
 use polyepoxide_core::{
-    Bond, BondVisitor, Cell, Cid, ErasedBond, Ligation, Oxide, Solvent, Structure, oxide,
+    Bond, BondVisitor, Cell, Cid, ErasedBond, Ligation, MemoryStore, Oxide, Solvent, Structure,
+    oxide,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A simple node with a value and optional reference to another node.
@@ -482,4 +485,49 @@ fn generic_struct() {
     let bytes = wrapper.to_bytes();
     let recovered: Wrapper<String> = Oxide::from_bytes(&bytes).unwrap();
     assert_eq!(recovered.inner, "hello");
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
+#[serde(bound = "T: Oxide")]
+struct Keyed<T: Oxide> {
+    slug: String,
+    inner: Bond<T>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
+struct RecursiveViaWrapper {
+    name: String,
+    next: Option<Keyed<RecursiveViaWrapper>>,
+}
+
+#[test]
+fn self_reference_through_derived_generic_wrapper_persists() {
+    let solvent = Solvent::new();
+    let store = MemoryStore::new();
+
+    let root = solvent.add(RecursiveViaWrapper {
+        name: "root".to_string(),
+        next: None,
+    });
+
+    let (_value_cid, _schema_cid) = solvent.persist_cell(&root, &store).unwrap();
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Oxide)]
+struct RecursiveMaps {
+    ordered: IndexMap<String, Bond<RecursiveMaps>>,
+    unordered: HashMap<String, Bond<RecursiveMaps>>,
+}
+
+#[test]
+fn self_reference_through_map_containers_persists() {
+    let solvent = Solvent::new();
+    let store = MemoryStore::new();
+
+    let root = solvent.add(RecursiveMaps {
+        ordered: IndexMap::new(),
+        unordered: HashMap::new(),
+    });
+
+    let (_value_cid, _schema_cid) = solvent.persist_cell(&root, &store).unwrap();
 }

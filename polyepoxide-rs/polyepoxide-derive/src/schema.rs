@@ -16,10 +16,6 @@ impl SlotUsage {
         self.self_slot |= other.self_slot;
         self.generic_slots.extend(other.generic_slots);
     }
-
-    fn uses_slots(&self) -> bool {
-        self.self_slot || !self.generic_slots.is_empty()
-    }
 }
 
 /// Generates the `schema()` method implementation.
@@ -51,11 +47,16 @@ pub fn generate_schema(input: &DeriveInput, crate_path: &TokenStream) -> syn::Re
         }
     };
 
-    let body = wrap_schema_with_ligase(root_bond_expr, usage, &generic_params, crate_path);
+    let template_body = root_bond_expr.clone();
+    let body = instantiate_schema(root_bond_expr, usage, &generic_params, crate_path);
 
     Ok(quote! {
         fn schema() -> #crate_path::Bond<#crate_path::Structure> {
             #body
+        }
+
+        fn schema_template() -> #crate_path::Bond<#crate_path::Structure> {
+            #template_body
         }
     })
 }
@@ -332,7 +333,100 @@ fn type_to_schema(
                             return type_to_schema(&inner, self_type, crate_path, generic_slot_map);
                         }
                     }
+                    "Result" => {
+                        if let Some(args) = extract_type_generic_args(&segment.arguments) {
+                            if args.len() == 2 {
+                                let mut usage = SlotUsage::default();
+                                let (ok_schema, ok_usage) = type_to_schema(
+                                    &args[0],
+                                    self_type,
+                                    crate_path,
+                                    generic_slot_map,
+                                );
+                                usage.merge(ok_usage);
+                                let (err_schema, err_usage) = type_to_schema(
+                                    &args[1],
+                                    self_type,
+                                    crate_path,
+                                    generic_slot_map,
+                                );
+                                usage.merge(err_usage);
+                                return (
+                                    quote! {
+                                        #crate_path::Structure::result(#ok_schema, #err_schema)
+                                    },
+                                    usage,
+                                );
+                            }
+                        }
+                    }
+                    "IndexMap" => {
+                        if let Some(args) = extract_type_generic_args(&segment.arguments) {
+                            if args.len() == 2 {
+                                let mut usage = SlotUsage::default();
+                                let (key_schema, key_usage) = type_to_schema(
+                                    &args[0],
+                                    self_type,
+                                    crate_path,
+                                    generic_slot_map,
+                                );
+                                usage.merge(key_usage);
+                                let (value_schema, value_usage) = type_to_schema(
+                                    &args[1],
+                                    self_type,
+                                    crate_path,
+                                    generic_slot_map,
+                                );
+                                usage.merge(value_usage);
+                                return (
+                                    quote! {
+                                        #crate_path::Structure::ordered_map(#key_schema, #value_schema)
+                                    },
+                                    usage,
+                                );
+                            }
+                        }
+                    }
+                    "HashMap" => {
+                        if let Some(args) = extract_type_generic_args(&segment.arguments) {
+                            if args.len() == 2 {
+                                let mut usage = SlotUsage::default();
+                                let (key_schema, key_usage) = type_to_schema(
+                                    &args[0],
+                                    self_type,
+                                    crate_path,
+                                    generic_slot_map,
+                                );
+                                usage.merge(key_usage);
+                                let (value_schema, value_usage) = type_to_schema(
+                                    &args[1],
+                                    self_type,
+                                    crate_path,
+                                    generic_slot_map,
+                                );
+                                usage.merge(value_usage);
+                                return (
+                                    quote! {
+                                        #crate_path::Structure::map(#key_schema, #value_schema)
+                                    },
+                                    usage,
+                                );
+                            }
+                        }
+                    }
                     _ => {}
+                }
+
+                if let Some(args) = extract_type_generic_args(&segment.arguments) {
+                    if !args.is_empty() {
+                        return instantiate_generic_type(
+                            ty,
+                            &args,
+                            self_type,
+                            crate_path,
+                            generic_slot_map,
+                        );
+                    }
                 }
             }
 
@@ -372,26 +466,19 @@ fn type_to_schema(
     }
 }
 
-fn wrap_schema_with_ligase(
+fn instantiate_schema(
     root_bond_expr: TokenStream,
     usage: SlotUsage,
     generic_params: &[syn::Ident],
     crate_path: &TokenStream,
 ) -> TokenStream {
-    if !usage.uses_slots() {
-        return root_bond_expr;
-    }
-
-    let include_generic_args = !usage.generic_slots.is_empty();
-    let generic_arg_pushes: Vec<_> = if include_generic_args {
+    let instantiate_generics = !generic_params.is_empty();
+    let generic_arg_exprs: Vec<_> = if instantiate_generics {
         generic_params
             .iter()
             .map(|ident| {
                 quote! {
-                    {
-                        let arg = <#ident as #crate_path::Oxide>::schema();
-                        args.push(#crate_path::ErasedBond::from(&arg));
-                    }
+                    <#ident as #crate_path::Oxide>::schema()
                 }
             })
             .collect()
@@ -399,13 +486,52 @@ fn wrap_schema_with_ligase(
         Vec::new()
     };
 
+    let instantiated = if instantiate_generics {
+        quote! {
+            #crate_path::instantiate_schema_template(#root_bond_expr, &[#(#generic_arg_exprs),*])
+        }
+    } else {
+        root_bond_expr
+    };
+
+    if !usage.self_slot {
+        return instantiated;
+    }
+
     quote! {{
-        let root = #root_bond_expr;
-        let mut args = Vec::<#crate_path::ErasedBond>::new();
-        args.push(#crate_path::ErasedBond::from(&root));
-        #(#generic_arg_pushes)*
-        #crate_path::Bond::from_ligation(#crate_path::Ligation::Ligase(args))
+        let root = #instantiated;
+        #crate_path::Bond::from_ligation(#crate_path::Ligation::Ligase(vec![
+            #crate_path::ErasedBond::from(&root),
+        ]))
     }}
+}
+
+fn instantiate_generic_type(
+    type_path: &Type,
+    generic_args: &[Type],
+    self_type: &syn::Ident,
+    crate_path: &TokenStream,
+    generic_slot_map: &HashMap<String, u16>,
+) -> (TokenStream, SlotUsage) {
+    let mut usage = SlotUsage::default();
+    let arg_schemas: Vec<_> = generic_args
+        .iter()
+        .map(|arg| {
+            let (schema, arg_usage) = type_to_schema(arg, self_type, crate_path, generic_slot_map);
+            usage.merge(arg_usage);
+            schema
+        })
+        .collect();
+
+    (
+        quote! {
+            #crate_path::instantiate_schema_template(
+                <#type_path as #crate_path::Oxide>::schema_template(),
+                &[#(#arg_schemas),*],
+            )
+        },
+        usage,
+    )
 }
 
 /// Check if a type path refers to the type being derived (self-reference).
@@ -446,6 +572,23 @@ fn extract_single_generic_arg(args: &syn::PathArguments) -> Option<Type> {
                 }
             }
             None
+        }
+        _ => None,
+    }
+}
+
+fn extract_type_generic_args(args: &syn::PathArguments) -> Option<Vec<Type>> {
+    match args {
+        syn::PathArguments::AngleBracketed(angle) => {
+            let out: Vec<_> = angle
+                .args
+                .iter()
+                .filter_map(|arg| match arg {
+                    syn::GenericArgument::Type(ty) => Some(ty.clone()),
+                    _ => None,
+                })
+                .collect();
+            Some(out)
         }
         _ => None,
     }

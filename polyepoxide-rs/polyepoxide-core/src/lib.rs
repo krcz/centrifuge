@@ -58,7 +58,7 @@ pub use cursor::{Cursor, CursorError};
 pub use dyn_bond::{DynBond, DynBondError};
 pub use export::{ExportError, ExportFormat, ExportOptions, ExportProfile, export};
 pub use import::{ImportError, ImportFormat, ImportMode, ImportOptions, import};
-pub use oxide::{BondVisitor, ByteString, Oxide, compute_cid};
+pub use oxide::{BondVisitor, ByteString, Oxide, compute_cid, instantiate_schema_template};
 pub use reflexive::{
     Ligation, MULTIHASH_IDENTITY, POLYEPOXIDE_REFLEXIVE_CODEC, data_to_reflexive_cid,
     is_identity_cid, is_reflexive_cid, ligase_cid, ligation_cid, make_identity_cid,

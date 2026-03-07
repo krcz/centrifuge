@@ -114,6 +114,10 @@ impl<T: Oxide> Oxide for Bond<T> {
         Structure::bond(T::schema())
     }
 
+    fn schema_template() -> Bond<Structure> {
+        Structure::bond(T::schema_template())
+    }
+
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
         visitor.visit_bond(&self.cid());
         match self {
