@@ -1,35 +1,35 @@
 $ligation:
   Ligase:
-  - $link: bafyr4igj4n4u5kiagrhcxenyspglxd6bnhid53ylhfbzio7oa5uhczytlm
+  - $link: bafyr4ia6bknd6oxbbwzc5fw5x45p345zqdhob5gwvb7kze64icejoywivy
     $value:
-      '@id': urn:px-occ:bafyr4ibnggc2l4owmwgrvwmtkzw73hlaci3qzy5ootqqabxsgdleu62cfy
+      '@id': urn:px-occ:bafyr4igxxsw7ct3e2txc2c3veuhwtrfx65lfuacpeu3pzwce7ye3n7ypg4
       data:
         Tagged:
         - - Bool
           - $link: bafyr4ihpyxsuytbjx3ri75ygqnppy4fz2p5ihtkha7zgjhdmnyveciz7ga
             $value:
-              '@id': urn:px-occ:bafyr4if4cmledebu5elqmpzdmzwepqvsodc2w7g3t3r3g7fqp22sdac7iu
+              '@id': urn:px-occ:bafyr4ig644x3e334liswh5n4p436negsyy5s6lmc5rbwave7yvienoxbsq
               data: Unit
         - - Char
           - $link: bafyr4ihpyxsuytbjx3ri75ygqnppy4fz2p5ihtkha7zgjhdmnyveciz7ga
             $value:
-              '@id': urn:px-occ:bafyr4if4cmledebu5elqmpzdmzwepqvsodc2w7g3t3r3g7fqp22sdac7iu
+              '@id': urn:px-occ:bafyr4ig644x3e334liswh5n4p436negsyy5s6lmc5rbwave7yvienoxbsq
         - - Unicode
           - $link: bafyr4ihpyxsuytbjx3ri75ygqnppy4fz2p5ihtkha7zgjhdmnyveciz7ga
             $value:
-              '@id': urn:px-occ:bafyr4if4cmledebu5elqmpzdmzwepqvsodc2w7g3t3r3g7fqp22sdac7iu
+              '@id': urn:px-occ:bafyr4ig644x3e334liswh5n4p436negsyy5s6lmc5rbwave7yvienoxbsq
         - - ByteString
           - $link: bafyr4ihpyxsuytbjx3ri75ygqnppy4fz2p5ihtkha7zgjhdmnyveciz7ga
             $value:
-              '@id': urn:px-occ:bafyr4if4cmledebu5elqmpzdmzwepqvsodc2w7g3t3r3g7fqp22sdac7iu
+              '@id': urn:px-occ:bafyr4ig644x3e334liswh5n4p436negsyy5s6lmc5rbwave7yvienoxbsq
         - - Cid
           - $link: bafyr4ihpyxsuytbjx3ri75ygqnppy4fz2p5ihtkha7zgjhdmnyveciz7ga
             $value:
-              '@id': urn:px-occ:bafyr4if4cmledebu5elqmpzdmzwepqvsodc2w7g3t3r3g7fqp22sdac7iu
+              '@id': urn:px-occ:bafyr4ig644x3e334liswh5n4p436negsyy5s6lmc5rbwave7yvienoxbsq
         - - Int
           - $link: bafyr4iatxcaep5oo5dtr6bnepisackzrjpzyfnw66wcrgc2szehfanpl44
             $value:
-              '@id': urn:px-occ:bafyr4ihger34omkkcl5m2g4ooupvqidfswkpw5gcrjw2u44gbq6ls6jioi
+              '@id': urn:px-occ:bafyr4ieogadzfsukvplzuo5ff4zpr5kdvf4qioxopgpbgrv352s2xut6u4
               data:
                 Enum:
                 - U8
@@ -43,7 +43,7 @@ $ligation:
         - - Float
           - $link: bafyr4ibvg2lv4o7thvvsa3vppmbydlo7i4o3zgc2bhiloxq4o64sibbpjy
             $value:
-              '@id': urn:px-occ:bafyr4igfefy4ohx27dj3l3nkjlplcr63ea5ddunrn226nnqzbqtwmyubsy
+              '@id': urn:px-occ:bafyr4idbrc265tecngpke7hjbdza73qyetmeqtfc4dixlvogvyzafbtugy
               data:
                 Enum:
                 - F32
@@ -51,73 +51,77 @@ $ligation:
         - - Unit
           - $link: bafyr4ihpyxsuytbjx3ri75ygqnppy4fz2p5ihtkha7zgjhdmnyveciz7ga
             $value:
-              '@id': urn:px-occ:bafyr4if4cmledebu5elqmpzdmzwepqvsodc2w7g3t3r3g7fqp22sdac7iu
-        - - Sequence
+              '@id': urn:px-occ:bafyr4ig644x3e334liswh5n4p436negsyy5s6lmc5rbwave7yvienoxbsq
+        - - Option
           - $link: bafyr4igsjo7t4f4a5l5m6xagtolcrzzs2leilailtkew733cya7vx7vkae
             $value:
-              '@id': urn:px-occ:bafyr4iaohv4ma54fiom53dafueqgz7bvuwi26svajljfblw4kj62r7u4ji
+              '@id': urn:px-occ:bafyr4ick7vux7j77pwlsajizxjjtnrsf6c4zz764o7svxdx2qtoxcehhse
               data:
                 Bond:
                   $ligation:
                     Slot: 0
+        - - Sequence
+          - $link: bafyr4igsjo7t4f4a5l5m6xagtolcrzzs2leilailtkew733cya7vx7vkae
+            $value:
+              '@id': urn:px-occ:bafyr4ick7vux7j77pwlsajizxjjtnrsf6c4zz764o7svxdx2qtoxcehhse
         - - Tuple
           - $link: bafyr4ie2juqu35hdpqjm7ejx4tarhlq7ayruk6ehp6wns7zvcwz5hcosfy
             $value:
-              '@id': urn:px-occ:bafyr4ihxjvql57x5tvjodozmlw4y2uma7oiijx2h4csyx5rzf6n6h5v5aq
+              '@id': urn:px-occ:bafyr4igubaldnxoptd2laema6ia4ngeyofdni4bpiqn3v4mjvo23ieb3t4
               data:
                 Sequence:
                   $link: bafyr4igsjo7t4f4a5l5m6xagtolcrzzs2leilailtkew733cya7vx7vkae
                   $value:
-                    '@id': urn:px-occ:bafyr4iaohv4ma54fiom53dafueqgz7bvuwi26svajljfblw4kj62r7u4ji
+                    '@id': urn:px-occ:bafyr4ick7vux7j77pwlsajizxjjtnrsf6c4zz764o7svxdx2qtoxcehhse
         - - Record
           - $link: bafyr4iggaz67x3pb2gf3a3a7crmza4z4gwqwdx3rgw6gaoltkvpnuqdf5i
             $value:
-              '@id': urn:px-occ:bafyr4ifz536yhqif6ddt3ajetk2crjdxeb6cetgymg7gupiuo4rs2vunzq
+              '@id': urn:px-occ:bafyr4igc6hudcjuvvctry7peo63lsdnxnpfoof5fivnfycalcmwmpt2vza
               data:
                 OrderedMap:
                   key:
                     $link: bafyr4iaq2gwu7fvxgnmk62pv2kvg5yy225uywvopj4l2ecenup2qwb42d4
                     $value:
-                      '@id': urn:px-occ:bafyr4idbp5uv7vvivbyyklhiefqj4rmxnpfj46lqdbmdvdl5nvbbe46cqm
+                      '@id': urn:px-occ:bafyr4ihfd3qdbgrlllkdbvh77kksi5hbrn6snch3aclgdxjl3q654khixi
                       data: Unicode
                   value:
                     $link: bafyr4igsjo7t4f4a5l5m6xagtolcrzzs2leilailtkew733cya7vx7vkae
                     $value:
-                      '@id': urn:px-occ:bafyr4iaohv4ma54fiom53dafueqgz7bvuwi26svajljfblw4kj62r7u4ji
+                      '@id': urn:px-occ:bafyr4ick7vux7j77pwlsajizxjjtnrsf6c4zz764o7svxdx2qtoxcehhse
         - - Tagged
           - $link: bafyr4iggaz67x3pb2gf3a3a7crmza4z4gwqwdx3rgw6gaoltkvpnuqdf5i
             $value:
-              '@id': urn:px-occ:bafyr4ifz536yhqif6ddt3ajetk2crjdxeb6cetgymg7gupiuo4rs2vunzq
+              '@id': urn:px-occ:bafyr4igc6hudcjuvvctry7peo63lsdnxnpfoof5fivnfycalcmwmpt2vza
         - - Enum
           - $link: bafyr4ic6pee5r4q6x6s3u6yfvbpnk2awtmwkqnc3t2cwtmk4ukt4d7ka2m
             $value:
-              '@id': urn:px-occ:bafyr4iholtg47nvdky6mksk7wb3z7nxstmy3myhyegqvrqemsyicnvzaee
+              '@id': urn:px-occ:bafyr4icmk7vyfvhc27ffau7nzwckrr3pdu2scmxsvctwbacvny4swimzvi
               data:
                 Sequence:
                   $link: bafyr4iaq2gwu7fvxgnmk62pv2kvg5yy225uywvopj4l2ecenup2qwb42d4
                   $value:
-                    '@id': urn:px-occ:bafyr4idbp5uv7vvivbyyklhiefqj4rmxnpfj46lqdbmdvdl5nvbbe46cqm
+                    '@id': urn:px-occ:bafyr4ihfd3qdbgrlllkdbvh77kksi5hbrn6snch3aclgdxjl3q654khixi
         - - Map
           - $link: bafyr4iepv5swepri4mnb5scza4wigzju4my6meuskwglkqxyfakt2wpfvu
             $value:
-              '@id': urn:px-occ:bafyr4igf6imeeb2yqzefkgehqsm67yumu2uityscizhhrryvvts4ig5ofi
+              '@id': urn:px-occ:bafyr4ifmmj7rfjt6bo5jm7rk7jows2eml6vnfccfwxexupo5x72gsfj5jy
               data:
                 Record:
                 - - key
                   - $link: bafyr4igsjo7t4f4a5l5m6xagtolcrzzs2leilailtkew733cya7vx7vkae
                     $value:
-                      '@id': urn:px-occ:bafyr4iaohv4ma54fiom53dafueqgz7bvuwi26svajljfblw4kj62r7u4ji
+                      '@id': urn:px-occ:bafyr4ick7vux7j77pwlsajizxjjtnrsf6c4zz764o7svxdx2qtoxcehhse
                 - - value
                   - $link: bafyr4igsjo7t4f4a5l5m6xagtolcrzzs2leilailtkew733cya7vx7vkae
                     $value:
-                      '@id': urn:px-occ:bafyr4iaohv4ma54fiom53dafueqgz7bvuwi26svajljfblw4kj62r7u4ji
+                      '@id': urn:px-occ:bafyr4ick7vux7j77pwlsajizxjjtnrsf6c4zz764o7svxdx2qtoxcehhse
         - - OrderedMap
           - $link: bafyr4iepv5swepri4mnb5scza4wigzju4my6meuskwglkqxyfakt2wpfvu
             $value:
-              '@id': urn:px-occ:bafyr4igf6imeeb2yqzefkgehqsm67yumu2uityscizhhrryvvts4ig5ofi
+              '@id': urn:px-occ:bafyr4ifmmj7rfjt6bo5jm7rk7jows2eml6vnfccfwxexupo5x72gsfj5jy
         - - Bond
           - $link: bafyr4igsjo7t4f4a5l5m6xagtolcrzzs2leilailtkew733cya7vx7vkae
             $value:
-              '@id': urn:px-occ:bafyr4iaohv4ma54fiom53dafueqgz7bvuwi26svajljfblw4kj62r7u4ji
+              '@id': urn:px-occ:bafyr4ick7vux7j77pwlsajizxjjtnrsf6c4zz764o7svxdx2qtoxcehhse
 '@context':
   '@vocab': 'urn:px:'

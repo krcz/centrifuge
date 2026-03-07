@@ -1,7 +1,12 @@
 mod conformance_support;
 
-use conformance_support::{ProcedureWheel, ReactionBench, export_imported, import_fixture};
-use polyepoxide_core::{DynBond, ExportFormat, ExportProfile, ImportFormat, ImportMode, Oxide};
+use conformance_support::{
+    OptionalRecord, ProcedureWheel, ReactionBench, export_imported, import_fixture, import_text,
+    import_text_err,
+};
+use polyepoxide_core::{
+    DynBond, ExportFormat, ExportProfile, ImportError, ImportFormat, ImportMode, Oxide,
+};
 
 const MPV_BENCH_CID: &str = "bafyr4ies7seh7nu3tjwkpiiykjq4ariz2tfzu52znxduzxmew7dbz3rdeu";
 const REFLUX_LOOP_CID: &str = "bafyr4icciadmwbcoptd5vqda7zzi6dvymsekrglbqjzzlxuvrybqymkyo4";
@@ -80,4 +85,47 @@ fn dynamic_bond_fixture_imports_and_reexports() {
     assert!(exported.contains("@context"));
     assert!(exported.contains("schema:"));
     assert!(exported.contains("bond:"));
+}
+
+#[test]
+fn record_field_option_uses_direct_and_inner_array_forms() {
+    let imported = import_text::<OptionalRecord>(
+        "name: example\nnote: hello\nnested: []\n",
+        ImportFormat::Yaml,
+        ImportMode::Lenient,
+    );
+
+    assert_eq!(imported.value.name, "example");
+    assert_eq!(imported.value.note.as_deref(), Some("hello"));
+    assert_eq!(imported.value.nested, Some(None));
+
+    let exported = export_imported(&imported, ExportFormat::Yaml, ExportProfile::Direct);
+    assert!(exported.contains("name: example"));
+    assert!(exported.contains("note: hello"));
+    assert!(exported.contains("nested: []"));
+}
+
+#[test]
+fn standalone_option_keeps_array_form() {
+    let imported = import_text::<Option<String>>(
+        "- hello\n",
+        ImportFormat::Yaml,
+        ImportMode::Lenient,
+    );
+
+    assert_eq!(imported.value.as_deref(), Some("hello"));
+
+    let exported = export_imported(&imported, ExportFormat::Yaml, ExportProfile::Direct);
+    assert!(exported.contains("data:\n- hello"));
+}
+
+#[test]
+fn record_field_option_rejects_legacy_outer_array() {
+    let err = import_text_err::<OptionalRecord>(
+        "name: example\nnote: [hello]\n",
+        ImportFormat::Yaml,
+        ImportMode::Lenient,
+    );
+
+    assert!(matches!(err, ImportError::Invalid(_)));
 }

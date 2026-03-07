@@ -413,7 +413,7 @@ fn materialize_inline<S: Store + ?Sized>(
     schema: &SchemaCursor<'_>,
     env: &mut ImportEnv<'_, S>,
 ) -> Result<MaterializedNode, ImportError> {
-    let ipld = import_data(node, schema, env)?;
+    let ipld = import_data(node, schema, env, false)?;
     let bytes =
         serde_ipld_dagcbor::to_vec(&ipld).map_err(|e| ImportError::Decode(e.to_string()))?;
     let cid = compute_cid(&bytes);
@@ -427,6 +427,7 @@ fn import_data<S: Store + ?Sized>(
     node: &InputNode,
     schema: &SchemaCursor<'_>,
     env: &mut ImportEnv<'_, S>,
+    record_field: bool,
 ) -> Result<Ipld, ImportError> {
     match schema.structure() {
         Structure::Bool => match &node.kind {
@@ -464,13 +465,35 @@ fn import_data<S: Store + ?Sized>(
             InputKind::Null => Ok(Ipld::Null),
             _ => Err(type_mismatch("null", node)),
         },
+        Structure::Option(inner) => {
+            let child = schema.child(inner)?;
+            if record_field {
+                import_data(node, &child, env, false)
+            } else {
+                match &node.kind {
+                    InputKind::Array(values) => {
+                        if values.len() > 1 {
+                            return Err(ImportError::Invalid(
+                                "option array must have 0 or 1 elements".to_string(),
+                            ));
+                        }
+                        let mut out = Vec::with_capacity(values.len());
+                        for value in values {
+                            out.push(import_data(value, &child, env, false)?);
+                        }
+                        Ok(Ipld::List(out))
+                    }
+                    _ => Err(type_mismatch("array", node)),
+                }
+            }
+        }
         Structure::Sequence(inner) => {
             let child = schema.child(inner)?;
             match &node.kind {
                 InputKind::Array(values) => {
                     let mut out = Vec::with_capacity(values.len());
                     for value in values {
-                        out.push(import_data(value, &child, env)?);
+                        out.push(import_data(value, &child, env, false)?);
                     }
                     Ok(Ipld::List(out))
                 }
@@ -482,7 +505,7 @@ fn import_data<S: Store + ?Sized>(
                 let mut out = Vec::with_capacity(values.len());
                 for (value, bond) in values.iter().zip(elements.iter()) {
                     let child = schema.child(bond)?;
-                    out.push(import_data(value, &child, env)?);
+                    out.push(import_data(value, &child, env, false)?);
                 }
                 Ok(Ipld::List(out))
             }
@@ -492,9 +515,9 @@ fn import_data<S: Store + ?Sized>(
             InputKind::Object(map) => {
                 let mut out = BTreeMap::new();
                 for (name, bond) in fields {
+                    let child = schema.child(bond)?;
                     if let Some(value) = map.get(name) {
-                        let child = schema.child(bond)?;
-                        out.insert(name.clone(), import_data(value, &child, env)?);
+                        out.insert(name.clone(), import_data(value, &child, env, true)?);
                     }
                 }
                 Ok(Ipld::Map(out))
@@ -509,7 +532,7 @@ fn import_data<S: Store + ?Sized>(
                     })?;
                     let child = schema.child(bond)?;
                     let mut out = BTreeMap::new();
-                    out.insert(name.clone(), import_data(value, &child, env)?);
+                    out.insert(name.clone(), import_data(value, &child, env, false)?);
                     Ok(Ipld::Map(out))
                 } else {
                     Err(ImportError::Invalid(
@@ -576,8 +599,8 @@ fn import_data<S: Store + ?Sized>(
                 for entry in entries {
                     match &entry.kind {
                         InputKind::Array(pair) if pair.len() == 2 => out.push(Ipld::List(vec![
-                            import_data(&pair[0], &key_schema, env)?,
-                            import_data(&pair[1], &value_schema, env)?,
+                            import_data(&pair[0], &key_schema, env, false)?,
+                            import_data(&pair[1], &value_schema, env, false)?,
                         ])),
                         _ => {
                             return Err(ImportError::Invalid(
@@ -1100,6 +1123,30 @@ mod tests {
         right: Bond<String>,
     }
 
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, crate::Oxide)]
+    #[oxide(crate = crate)]
+    struct OptionalRecord {
+        name: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "crate::serde_helpers::option_as_field"
+        )]
+        note: Option<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, crate::Oxide)]
+    #[oxide(crate = crate)]
+    struct NestedOptionalRecord {
+        name: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "crate::serde_helpers::option_as_field"
+        )]
+        note: Option<Option<String>>,
+    }
+
     fn export_fixture<T: Oxide>(
         value: T,
         format: ExportFormat,
@@ -1341,5 +1388,160 @@ mod tests {
 
         let imported = decode_root::<Pair>(&store, imported_root_cid);
         assert_eq!(imported.left.cid(), imported.right.cid());
+    }
+
+    #[test]
+    fn record_field_option_exports_as_direct_or_omits() {
+        let (text_some, _, _) = export_fixture(
+            OptionalRecord {
+                name: "example".into(),
+                note: Some("hello".into()),
+            },
+            ExportFormat::Yaml,
+            ExportProfile::Direct,
+        );
+        assert!(text_some.contains("name: example"));
+        assert!(text_some.contains("note: hello"));
+
+        let (text_none, _, _) = export_fixture(
+            OptionalRecord {
+                name: "example".into(),
+                note: None,
+            },
+            ExportFormat::Yaml,
+            ExportProfile::Direct,
+        );
+        assert!(text_none.contains("name: example"));
+        assert!(!text_none.contains("note:"));
+    }
+
+    #[test]
+    fn record_field_option_import_accepts_direct_value() {
+        let store = MemoryStore::new();
+        let (schemas, schema_cid) = schema_env::<OptionalRecord>();
+        let imported_root_cid = import(
+            "name: example\nnote: hello\n",
+            ImportFormat::Yaml,
+            schema_cid,
+            &store,
+            &schemas,
+            &ImportOptions {
+                mode: ImportMode::Lenient,
+            },
+        )
+        .unwrap();
+
+        let imported = decode_root::<OptionalRecord>(&store, imported_root_cid);
+        assert_eq!(
+            imported,
+            OptionalRecord {
+                name: "example".into(),
+                note: Some("hello".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn record_field_option_rejects_legacy_array_encoding() {
+        let store = MemoryStore::new();
+        let (schemas, schema_cid) = schema_env::<OptionalRecord>();
+        let err = import(
+            "name: example\nnote: [hello]\n",
+            ImportFormat::Yaml,
+            schema_cid,
+            &store,
+            &schemas,
+            &ImportOptions {
+                mode: ImportMode::Lenient,
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ImportError::Invalid(_)));
+    }
+
+    #[test]
+    fn record_field_nested_option_uses_inner_option_encoding() {
+        let store = MemoryStore::new();
+        let (schemas, schema_cid) = schema_env::<NestedOptionalRecord>();
+
+        let outer_none_cid = import(
+            "name: example\n",
+            ImportFormat::Yaml,
+            schema_cid,
+            &store,
+            &schemas,
+            &ImportOptions {
+                mode: ImportMode::Lenient,
+            },
+        )
+        .unwrap();
+        let inner_none_cid = import(
+            "name: example\nnote: []\n",
+            ImportFormat::Yaml,
+            schema_cid,
+            &store,
+            &schemas,
+            &ImportOptions {
+                mode: ImportMode::Lenient,
+            },
+        )
+        .unwrap();
+
+        let outer_none = decode_root::<NestedOptionalRecord>(&store, outer_none_cid);
+        let inner_none = decode_root::<NestedOptionalRecord>(&store, inner_none_cid);
+
+        assert_eq!(
+            outer_none,
+            NestedOptionalRecord {
+                name: "example".into(),
+                note: None,
+            }
+        );
+        assert_eq!(
+            inner_none,
+            NestedOptionalRecord {
+                name: "example".into(),
+                note: Some(None),
+            }
+        );
+        assert_ne!(outer_none_cid, inner_none_cid);
+
+        let (text, _, _) = export_fixture(
+            NestedOptionalRecord {
+                name: "example".into(),
+                note: Some(None),
+            },
+            ExportFormat::Yaml,
+            ExportProfile::Direct,
+        );
+        assert!(text.contains("note: []"));
+    }
+
+    #[test]
+    fn standalone_option_stays_array_encoded() {
+        let (text, _, _) = export_fixture(
+            Some("hello".to_string()),
+            ExportFormat::Yaml,
+            ExportProfile::Direct,
+        );
+        assert!(text.contains("- hello"));
+
+        let store = MemoryStore::new();
+        let (schemas, schema_cid) = schema_env::<Option<String>>();
+        let imported_root_cid = import(
+            "- hello\n",
+            ImportFormat::Yaml,
+            schema_cid,
+            &store,
+            &schemas,
+            &ImportOptions {
+                mode: ImportMode::Lenient,
+            },
+        )
+        .unwrap();
+
+        let imported = decode_root::<Option<String>>(&store, imported_root_cid);
+        assert_eq!(imported, Some("hello".to_string()));
     }
 }

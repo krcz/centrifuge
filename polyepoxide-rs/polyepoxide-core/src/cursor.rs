@@ -131,8 +131,7 @@ mod tests {
     use super::*;
     use crate::{Bond, ErasedBond, Ligation, Solvent, slot_cid};
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, crate::Oxide)]
-    #[oxide(crate = crate)]
+    #[crate::oxide(crate = crate)]
     struct Ring {
         name: String,
         next: Bond<Ring>,

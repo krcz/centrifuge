@@ -9,7 +9,7 @@ These fixtures exercise schema import/export directly.
   `bafyr4ihste65lvydigb5qwuv4ljcpn32crdlpbny52vqawc6jjq5lrmgye`
 
   Expected schema CID:
-  `bagaybqabdyqaeegsrwbr3zyxq2rv7iztnos5xawfxaf6gheugc3gaegai7tdykq`
+  `bagaybqabdyqfbqtx2tf7642wediyugqzsu6nelflcebvpzkkktx7c4bgie3nm2i`
 
 - `procedure-wheel.schema.yamlld`
   Canonical YAML-LD export of the `ProcedureWheel` schema.
@@ -18,16 +18,16 @@ These fixtures exercise schema import/export directly.
   `bafyr4iexlq4cqpmipq4xktahosewtrhucfzvrnh3lq5mjh2tku4wkxdruq`
 
   Expected schema CID:
-  `bagaybqabdyqaeegsrwbr3zyxq2rv7iztnos5xawfxaf6gheugc3gaegai7tdykq`
+  `bagaybqabdyqfbqtx2tf7642wediyugqzsu6nelflcebvpzkkktx7c4bgie3nm2i`
 
 - `dyn-bond.schema.yamlld`
   Canonical YAML-LD export of the `DynBond` schema.
 
   Expected root bond CID:
-  `bafyr4igxca66cm65tqyuhhictd43o2l3omrfg4zepnf33s7kg7p6spbqge`
+  `bafyr4ictzhoxnj6goz3snxvrjv5oqjfxhuuxdnbitjwbw3fuxhwzqzsm4e`
 
   Expected schema CID:
-  `bagaybqabdyqaeegsrwbr3zyxq2rv7iztnos5xawfxaf6gheugc3gaegai7tdykq`
+  `bagaybqabdyqfbqtx2tf7642wediyugqzsu6nelflcebvpzkkktx7c4bgie3nm2i`
 
 - `structure-schema.yamlld`
   Canonical YAML-LD export of `Structure::schema()` itself. The corresponding
@@ -39,7 +39,7 @@ These fixtures exercise schema import/export directly.
   validating two distinct roles.
 
   Expected root bond CID:
-  `bagaybqabdyqaeegsrwbr3zyxq2rv7iztnos5xawfxaf6gheugc3gaegai7tdykq`
+  `bagaybqabdyqfbqtx2tf7642wediyugqzsu6nelflcebvpzkkktx7c4bgie3nm2i`
 
   Expected `Structure` schema CID:
-  `bagaybqabdyqaeegsrwbr3zyxq2rv7iztnos5xawfxaf6gheugc3gaegai7tdykq`
+  `bagaybqabdyqfbqtx2tf7642wediyugqzsu6nelflcebvpzkkktx7c4bgie3nm2i`

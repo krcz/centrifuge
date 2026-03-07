@@ -46,6 +46,18 @@ pub fn collect_bonds(
                 }
             }
         }
+        Structure::Option(inner) => {
+            if let Some(inner_schema) = inner.value() {
+                match value {
+                    Ipld::List(arr) => {
+                        for elem in arr {
+                            collect_bonds(elem, inner_schema, schemas, bonds);
+                        }
+                    }
+                    other => collect_bonds(other, inner_schema, schemas, bonds),
+                }
+            }
+        }
         Structure::Sequence(inner) => {
             if let Ipld::List(arr) = value {
                 if let Some(inner_schema) = inner.value() {

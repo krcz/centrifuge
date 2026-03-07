@@ -241,6 +241,38 @@ impl<T: Oxide> Oxide for Option<T> {
     fn dissolve_in(&self, solvent: &Solvent) -> Self {
         self.as_ref().map(|inner| inner.dissolve_in(solvent))
     }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        struct OptionAsArrayRef<'a, T>(&'a Option<T>);
+
+        impl<T: Serialize> Serialize for OptionAsArrayRef<'_, T> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                crate::serde_helpers::option_as_array::serialize(self.0, serializer)
+            }
+        }
+
+        serde_ipld_dagcbor::to_vec(&OptionAsArrayRef(self)).expect("serialization should not fail")
+    }
+
+    fn from_bytes(
+        data: &[u8],
+    ) -> Result<Self, serde_ipld_dagcbor::DecodeError<std::convert::Infallible>> {
+        struct OptionAsArray<T>(Option<T>);
+
+        impl<'de, T: Deserialize<'de>> Deserialize<'de> for OptionAsArray<T> {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                crate::serde_helpers::option_as_array::deserialize(deserializer).map(Self)
+            }
+        }
+
+        serde_ipld_dagcbor::from_slice::<OptionAsArray<T>>(data).map(|value| value.0)
+    }
 }
 
 impl<T: Oxide, E: Oxide> Oxide for Result<T, E> {
@@ -349,6 +381,7 @@ fn instantiate_schema_bond(
 
 fn instantiate_schema_structure(template: &Structure, args: &[Bond<Structure>]) -> Structure {
     match template {
+        Structure::Option(inner) => Structure::Option(instantiate_schema_bond(inner, args)),
         Structure::Sequence(inner) => Structure::Sequence(instantiate_schema_bond(inner, args)),
         Structure::Tuple(elements) => Structure::Tuple(
             elements

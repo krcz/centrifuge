@@ -4,15 +4,15 @@ use conformance_support::{ProcedureWheel, ReactionBench, export_schema_fixture, 
 use polyepoxide_core::{DynBond, ExportFormat, ExportProfile, Oxide, Structure};
 
 const STRUCTURE_SCHEMA_ROOT_CID: &str =
-    "bagaybqabdyqaeegsrwbr3zyxq2rv7iztnos5xawfxaf6gheugc3gaegai7tdykq";
+    "bagaybqabdyqfbqtx2tf7642wediyugqzsu6nelflcebvpzkkktx7c4bgie3nm2i";
 const STRUCTURE_SCHEMA_SCHEMA_CID: &str =
-    "bagaybqabdyqaeegsrwbr3zyxq2rv7iztnos5xawfxaf6gheugc3gaegai7tdykq";
+    "bagaybqabdyqfbqtx2tf7642wediyugqzsu6nelflcebvpzkkktx7c4bgie3nm2i";
 const REACTION_BENCH_SCHEMA_ROOT_CID: &str =
     "bafyr4ihste65lvydigb5qwuv4ljcpn32crdlpbny52vqawc6jjq5lrmgye";
 const PROCEDURE_WHEEL_SCHEMA_ROOT_CID: &str =
     "bafyr4iexlq4cqpmipq4xktahosewtrhucfzvrnh3lq5mjh2tku4wkxdruq";
 const DYN_BOND_SCHEMA_ROOT_CID: &str =
-    "bafyr4igxca66cm65tqyuhhictd43o2l3omrfg4zepnf33s7kg7p6spbqge";
+    "bafyr4ictzhoxnj6goz3snxvrjv5oqjfxhuuxdnbitjwbw3fuxhwzqzsm4e";
 
 fn assert_schema_fixture<T: Oxide>(path: &str, expected_root_cid: &str, expected_schema_cid: &str) {
     let (exported, root_cid, schema_cid) =

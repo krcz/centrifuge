@@ -192,7 +192,7 @@ fn load_schema_recursive_inner<S: Store + ?Sized>(
 
     let cell = ensure_schema(store, schemas, resolved_cid)?;
     match cell.value() {
-        Structure::Sequence(inner) | Structure::Bond(inner) => {
+        Structure::Option(inner) | Structure::Sequence(inner) | Structure::Bond(inner) => {
             let _ =
                 load_schema_recursive_inner(store, schemas, inner.cid(), &resolved_scope, visited)?;
         }

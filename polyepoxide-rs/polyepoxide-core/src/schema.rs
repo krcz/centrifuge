@@ -105,6 +105,9 @@ pub enum Structure {
     Unit,
 
     // Compound types
+    /// Optional value. Outside record fields this follows the underlying direct/null encoding;
+    /// record import/export may use omitted/direct field syntax.
+    Option(Bond<Structure>),
     /// Homogeneous list.
     Sequence(Bond<Structure>),
     /// Heterogeneous fixed-size tuple.
@@ -139,7 +142,7 @@ pub enum Structure {
 impl Structure {
     /// Creates an optional type (sequence constrained to 0 or 1 elements).
     pub fn option(inner: impl Into<Bond<Structure>>) -> Bond<Structure> {
-        Bond::new(Structure::Sequence(inner.into()))
+        Bond::new(Structure::Option(inner.into()))
     }
 
     /// Creates a result type (tagged union of ok/err).
@@ -254,6 +257,7 @@ impl Oxide for Structure {
                 ("Float".to_string(), FloatType::schema()),
                 ("Unit".to_string(), Bond::new(Structure::Unit)),
                 // Compound types
+                ("Option".to_string(), self_bond.clone()),
                 ("Sequence".to_string(), self_bond.clone()),
                 (
                     "Tuple".to_string(),
@@ -292,7 +296,7 @@ impl Oxide for Structure {
 
     fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
         match self {
-            Structure::Sequence(inner) => inner.visit_bonds(visitor),
+            Structure::Option(inner) | Structure::Sequence(inner) => inner.visit_bonds(visitor),
             Structure::Tuple(elements) => {
                 for el in elements {
                     el.visit_bonds(visitor);
@@ -323,6 +327,7 @@ impl Oxide for Structure {
 
     fn dissolve_in(&self, solvent: &Solvent) -> Self {
         match self {
+            Structure::Option(inner) => Structure::Option(inner.dissolve_in(solvent)),
             Structure::Sequence(inner) => Structure::Sequence(inner.dissolve_in(solvent)),
             Structure::Tuple(elements) => {
                 Structure::Tuple(elements.iter().map(|el| el.dissolve_in(solvent)).collect())
@@ -366,6 +371,7 @@ impl PartialEq for Structure {
             (Structure::Int(a), Structure::Int(b)) => a == b,
             (Structure::Float(a), Structure::Float(b)) => a == b,
             (Structure::Unit, Structure::Unit) => true,
+            (Structure::Option(a), Structure::Option(b)) => a.cid() == b.cid(),
             (Structure::Sequence(a), Structure::Sequence(b)) => a.cid() == b.cid(),
             (Structure::Tuple(a), Structure::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.cid() == y.cid())
@@ -446,7 +452,7 @@ mod tests {
     #[test]
     fn structure_option_sugar() {
         let opt = Structure::option(Structure::Unicode);
-        assert!(matches!(opt.value(), Some(Structure::Sequence(_))));
+        assert!(matches!(opt.value(), Some(Structure::Option(_))));
     }
 
     #[test]
@@ -490,10 +496,11 @@ mod tests {
         let schema = Structure::schema();
         let root = resolve_schema_root(schema);
         if let Structure::Tagged(variants) = root {
-            // Should have all 16 variants
-            assert_eq!(variants.len(), 16);
+            // Should have all 17 variants
+            assert_eq!(variants.len(), 17);
             assert!(variants.contains_key("Bool"));
             assert!(variants.contains_key("Cid"));
+            assert!(variants.contains_key("Option"));
             assert!(variants.contains_key("Record"));
         } else {
             panic!("Expected Tagged");

@@ -1,5 +1,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::parse::Parser;
+use syn::punctuated::Punctuated;
+use syn::token::Comma;
 use syn::{DeriveInput, parse_macro_input};
 
 mod schema;
@@ -29,6 +32,27 @@ fn parse_crate_path(input: &DeriveInput) -> proc_macro2::TokenStream {
     quote! { ::polyepoxide_core }
 }
 
+fn parse_crate_path_override(
+    attr: proc_macro2::TokenStream,
+) -> syn::Result<Option<proc_macro2::TokenStream>> {
+    if attr.is_empty() {
+        return Ok(None);
+    }
+
+    let metas = Punctuated::<syn::Meta, Comma>::parse_terminated.parse2(attr)?;
+    for meta in metas {
+        if let syn::Meta::NameValue(name_value) = meta
+            && name_value.path.is_ident("crate")
+            && let syn::Expr::Path(expr_path) = name_value.value
+        {
+            let path = expr_path.path;
+            return Ok(Some(quote! { #path }));
+        }
+    }
+
+    Ok(None)
+}
+
 /// Attribute macro that derives all required traits for Oxide types.
 ///
 /// This is syntax sugar that expands to:
@@ -37,7 +61,8 @@ fn parse_crate_path(input: &DeriveInput) -> proc_macro2::TokenStream {
 /// ```
 ///
 /// Additionally, it adds serde attributes to ensure correct CBOR encoding:
-/// - `Option<T>` fields get `#[serde(with = "polyepoxide_core::serde_helpers::option_as_array")]`
+/// - named `Option<T>` fields get
+///   `#[serde(default, skip_serializing_if = "Option::is_none", with = "polyepoxide_core::serde_helpers::option_as_field")]`
 /// - `Result<T, E>` fields get `#[serde(with = "polyepoxide_core::serde_helpers::result_lowercase")]`
 ///
 /// # Example
@@ -52,10 +77,21 @@ fn parse_crate_path(input: &DeriveInput) -> proc_macro2::TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn oxide(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn oxide(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr_tokens: proc_macro2::TokenStream = attr.into();
+    let crate_path = match parse_crate_path_override(attr_tokens.clone()) {
+        Ok(Some(path)) => path,
+        Ok(None) => quote! { ::polyepoxide_core },
+        Err(err) => return err.to_compile_error().into(),
+    };
+    let crate_path_string = crate_path.to_string().replace(' ', "");
     let input = parse_macro_input!(item as DeriveInput);
-
-    let modified = add_serde_attributes(input);
+    let modified = add_serde_attributes(input, &crate_path_string);
+    let oxide_attr = if attr_tokens.is_empty() {
+        quote! {}
+    } else {
+        quote! { #[oxide(#attr_tokens)] }
+    };
 
     let output = quote! {
         #[derive(
@@ -63,8 +99,9 @@ pub fn oxide(_attr: TokenStream, item: TokenStream) -> TokenStream {
             ::std::clone::Clone,
             ::serde::Serialize,
             ::serde::Deserialize,
-            ::polyepoxide_core::Oxide
+            #crate_path::Oxide
         )]
+        #oxide_attr
         #modified
     };
 
@@ -72,14 +109,17 @@ pub fn oxide(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Add serde attributes to Option and Result fields for correct encoding.
-fn add_serde_attributes(mut input: DeriveInput) -> DeriveInput {
+fn add_serde_attributes(
+    mut input: DeriveInput,
+    crate_path: &str,
+) -> DeriveInput {
     match &mut input.data {
         syn::Data::Struct(data) => {
-            add_serde_attrs_to_fields(&mut data.fields);
+            add_serde_attrs_to_fields(&mut data.fields, crate_path);
         }
         syn::Data::Enum(data) => {
             for variant in &mut data.variants {
-                add_serde_attrs_to_fields(&mut variant.fields);
+                add_serde_attrs_to_fields(&mut variant.fields, crate_path);
             }
         }
         syn::Data::Union(_) => {}
@@ -87,38 +127,54 @@ fn add_serde_attributes(mut input: DeriveInput) -> DeriveInput {
     input
 }
 
-fn add_serde_attrs_to_fields(fields: &mut syn::Fields) {
+fn add_serde_attrs_to_fields(fields: &mut syn::Fields, crate_path: &str) {
     match fields {
         syn::Fields::Named(named) => {
             for field in &mut named.named {
-                add_serde_attr_to_field(field);
+                add_serde_attr_to_field(field, crate_path);
             }
         }
         syn::Fields::Unnamed(unnamed) => {
             for field in &mut unnamed.unnamed {
-                add_serde_attr_to_field(field);
+                add_serde_attr_to_field(field, crate_path);
             }
         }
         syn::Fields::Unit => {}
     }
 }
 
-fn add_serde_attr_to_field(field: &mut syn::Field) {
-    if let Some(serde_with) = get_serde_with_for_type(&field.ty) {
-        // Check if field already has a serde(with) attribute
-        let has_serde_with = field.attrs.iter().any(|attr| {
-            if !attr.path().is_ident("serde") {
-                return false;
-            }
-            let mut has_with = false;
-            let _ = attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("with") {
-                    has_with = true;
-                }
-                Ok(())
+fn add_serde_attr_to_field(field: &mut syn::Field, crate_path: &str) {
+    if field.ident.is_some() && type_is_option(&field.ty) {
+        let has_serde_default = has_serde_meta(field, "default");
+        let has_skip_if = has_serde_meta(field, "skip_serializing_if");
+        let has_serde_with = has_serde_meta(field, "with");
+
+        if !has_serde_default {
+            field.attrs.push(syn::parse_quote! {
+                #[serde(default)]
             });
-            has_with
-        });
+        }
+
+        if !has_skip_if {
+            field.attrs.push(syn::parse_quote! {
+                #[serde(skip_serializing_if = "Option::is_none")]
+            });
+        }
+
+        if !has_serde_with {
+            let serde_with = syn::LitStr::new(
+                &format!("{crate_path}::serde_helpers::option_as_field"),
+                proc_macro2::Span::call_site(),
+            );
+            field.attrs.push(syn::parse_quote! {
+                #[serde(with = #serde_with)]
+            });
+        }
+        return;
+    }
+
+    if let Some(serde_with) = get_serde_with_for_type(&field.ty, crate_path) {
+        let has_serde_with = has_serde_meta(field, "with");
 
         if !has_serde_with {
             field.attrs.push(syn::parse_quote! {
@@ -128,15 +184,56 @@ fn add_serde_attr_to_field(field: &mut syn::Field) {
     }
 }
 
+fn has_serde_meta(field: &syn::Field, name: &str) -> bool {
+    field.attrs.iter().any(|attr| {
+        if !attr.path().is_ident("serde") {
+            return false;
+        }
+        let mut found = false;
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident(name) {
+                found = true;
+            }
+            Ok(())
+        });
+        found
+    })
+}
+
+fn type_is_option(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+    {
+        return segment.ident == "Option";
+    }
+    false
+}
+
 /// Returns the serde "with" module path for types needing special encoding.
-fn get_serde_with_for_type(ty: &syn::Type) -> Option<&'static str> {
+fn get_serde_with_for_type(
+    ty: &syn::Type,
+    crate_path: &str,
+) -> Option<syn::LitStr> {
     if let syn::Type::Path(type_path) = ty {
         if let Some(segment) = type_path.path.segments.last() {
             match segment.ident.to_string().as_str() {
-                "Option" => return Some("::polyepoxide_core::serde_helpers::option_as_array"),
-                "Result" => return Some("::polyepoxide_core::serde_helpers::result_lowercase"),
+                "Option" => {
+                    return Some(syn::LitStr::new(
+                        &format!("{crate_path}::serde_helpers::option_as_array"),
+                        proc_macro2::Span::call_site(),
+                    ));
+                }
+                "Result" => {
+                    return Some(syn::LitStr::new(
+                        &format!("{crate_path}::serde_helpers::result_lowercase"),
+                        proc_macro2::Span::call_site(),
+                    ));
+                }
                 "IndexMap" => {
-                    return Some("::polyepoxide_core::serde_helpers::indexmap_as_ordered_map");
+                    return Some(syn::LitStr::new(
+                        &format!("{crate_path}::serde_helpers::indexmap_as_ordered_map"),
+                        proc_macro2::Span::call_site(),
+                    ));
                 }
                 _ => {}
             }

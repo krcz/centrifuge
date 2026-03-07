@@ -79,6 +79,12 @@ enum VisitState {
     Done,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExportContext {
+    Normal,
+    RecordField,
+}
+
 struct GraphBuilder {
     profile: ExportProfile,
     seen: IndexMap<String, VisitState>,
@@ -109,7 +115,9 @@ impl GraphBuilder {
         self.seen.insert(id.clone(), VisitState::Visiting);
         let ipld = cursor.ipld()?;
         let schema_cell = cursor.schema()?;
-        let data = self.export_value(cursor, &ipld, schema_cell.value())?;
+        let data = self
+            .export_value(cursor, &ipld, schema_cell.value(), ExportContext::Normal)?
+            .ok_or_else(|| ExportError::Format("root value cannot be omitted".to_string()))?;
         self.seen.insert(id.clone(), VisitState::Done);
         Ok(DocNode::Occurrence {
             id,
@@ -122,12 +130,14 @@ impl GraphBuilder {
         cursor: &StoreCursor<'_, S>,
         ipld: &Ipld,
         schema: &Structure,
-    ) -> Result<DocNode, ExportError<S::Error>> {
+        context: ExportContext,
+    ) -> Result<Option<DocNode>, ExportError<S::Error>> {
         match (ipld, schema) {
             (Ipld::Link(target_cid), Structure::Bond(inner_schema)) => {
                 self.export_bond(cursor, *target_cid, inner_schema.cid())
+                    .map(Some)
             }
-            (Ipld::Link(cid), Structure::Cid) => Ok(DocNode::String(cid.to_string())),
+            (Ipld::Link(cid), Structure::Cid) => Ok(Some(DocNode::String(cid.to_string()))),
             (Ipld::Map(map), Structure::Record(fields)) => {
                 let mut out = IndexMap::new();
                 for (name, field_schema_bond) in fields {
@@ -136,13 +146,19 @@ impl GraphBuilder {
                             cursor.resolve_child_schema(field_schema_bond.cid())?;
                         let child_cursor =
                             cursor.with_schema(field_schema.cid(), field_schema_scope);
-                        out.insert(
-                            name.clone(),
-                            self.export_value(&child_cursor, value, field_schema.value())?,
-                        );
+                        if let Some(exported) =
+                            self.export_value(
+                                &child_cursor,
+                                value,
+                                field_schema.value(),
+                                ExportContext::RecordField,
+                            )?
+                        {
+                            out.insert(name.clone(), exported);
+                        }
                     }
                 }
-                Ok(DocNode::Object(out))
+                Ok(Some(DocNode::Object(out)))
             }
             (Ipld::List(values), Structure::Record(fields)) => {
                 let mut out = IndexMap::new();
@@ -150,12 +166,52 @@ impl GraphBuilder {
                     let (field_schema, field_schema_scope) =
                         cursor.resolve_child_schema(field_schema_bond.cid())?;
                     let child_cursor = cursor.with_schema(field_schema.cid(), field_schema_scope);
-                    out.insert(
-                        name.clone(),
-                        self.export_value(&child_cursor, value, field_schema.value())?,
+                    if let Some(exported) =
+                        self.export_value(
+                            &child_cursor,
+                            value,
+                            field_schema.value(),
+                            ExportContext::RecordField,
+                        )?
+                    {
+                        out.insert(name.clone(), exported);
+                    }
+                }
+                Ok(Some(DocNode::Object(out)))
+            }
+            (value, Structure::Option(inner)) => {
+                let (inner_schema, inner_schema_scope) =
+                    cursor.resolve_child_schema(inner.cid())?;
+                let child_cursor = cursor.with_schema(inner_schema.cid(), inner_schema_scope);
+                if matches!(context, ExportContext::RecordField) {
+                    return self.export_value(
+                        &child_cursor,
+                        value,
+                        inner_schema.value(),
+                        ExportContext::Normal,
                     );
                 }
-                Ok(DocNode::Object(out))
+                let Ipld::List(values) = value else {
+                    return Err(self.type_mismatch::<S>(ipld, schema));
+                };
+                if values.len() > 1 {
+                    return Err(self.type_mismatch::<S>(ipld, schema));
+                }
+                let mut out = Vec::with_capacity(values.len());
+                for value in values {
+                    out.push(
+                        self.export_value(
+                            &child_cursor,
+                            value,
+                            inner_schema.value(),
+                            ExportContext::Normal,
+                        )?
+                        .ok_or_else(|| {
+                            ExportError::Format("option element cannot be omitted".to_string())
+                        })?,
+                    );
+                }
+                Ok(Some(DocNode::Array(out)))
             }
             (Ipld::List(values), Structure::Sequence(inner)) => {
                 let (inner_schema, inner_schema_scope) =
@@ -163,9 +219,19 @@ impl GraphBuilder {
                 let child_cursor = cursor.with_schema(inner_schema.cid(), inner_schema_scope);
                 let mut out = Vec::with_capacity(values.len());
                 for value in values {
-                    out.push(self.export_value(&child_cursor, value, inner_schema.value())?);
+                    out.push(
+                        self.export_value(
+                            &child_cursor,
+                            value,
+                            inner_schema.value(),
+                            ExportContext::Normal,
+                        )?
+                        .ok_or_else(|| {
+                            ExportError::Format("sequence element cannot be omitted".to_string())
+                        })?,
+                    );
                 }
-                Ok(DocNode::Array(out))
+                Ok(Some(DocNode::Array(out)))
             }
             (Ipld::List(values), Structure::Tuple(elements)) => {
                 let mut out = Vec::with_capacity(values.len());
@@ -173,9 +239,19 @@ impl GraphBuilder {
                     let (elem_schema, elem_schema_scope) =
                         cursor.resolve_child_schema(elem_schema_bond.cid())?;
                     let child_cursor = cursor.with_schema(elem_schema.cid(), elem_schema_scope);
-                    out.push(self.export_value(&child_cursor, value, elem_schema.value())?);
+                    out.push(
+                        self.export_value(
+                            &child_cursor,
+                            value,
+                            elem_schema.value(),
+                            ExportContext::Normal,
+                        )?
+                        .ok_or_else(|| {
+                            ExportError::Format("tuple element cannot be omitted".to_string())
+                        })?,
+                    );
                 }
-                Ok(DocNode::Array(out))
+                Ok(Some(DocNode::Array(out)))
             }
             (Ipld::Map(map), Structure::Tagged(variants)) => {
                 if let Some((name, value)) = map.iter().next() {
@@ -188,9 +264,19 @@ impl GraphBuilder {
                             let mut out = IndexMap::new();
                             out.insert(
                                 name.clone(),
-                                self.export_value(&child_cursor, value, variant_schema.value())?,
+                                self.export_value(
+                                    &child_cursor,
+                                    value,
+                                    variant_schema.value(),
+                                    ExportContext::Normal,
+                                )?
+                                .ok_or_else(|| {
+                                    ExportError::Format(
+                                        "tagged payload cannot be omitted".to_string(),
+                                    )
+                                })?,
                             );
-                            return Ok(DocNode::Object(out));
+                            return Ok(Some(DocNode::Object(out)));
                         }
                     }
                 }
@@ -201,7 +287,7 @@ impl GraphBuilder {
                     let (variant_schema, _) =
                         cursor.resolve_child_schema(variant_schema_bond.cid())?;
                     if matches!(variant_schema.value(), Structure::Unit) {
-                        return Ok(DocNode::String(name.clone()));
+                        return Ok(Some(DocNode::String(name.clone())));
                     }
                 }
                 Err(self.type_mismatch::<S>(ipld, schema))
@@ -209,7 +295,7 @@ impl GraphBuilder {
             (Ipld::Integer(index), Structure::Enum(variants)) => {
                 if *index >= 0 {
                     if let Some(name) = variants.get(*index as usize) {
-                        return Ok(DocNode::String(name.clone()));
+                        return Ok(Some(DocNode::String(name.clone())));
                     }
                 }
                 Err(ExportError::Format(format!(
@@ -219,7 +305,7 @@ impl GraphBuilder {
             }
             (Ipld::String(name), Structure::Enum(variants)) => {
                 if variants.iter().any(|variant| variant == name) {
-                    return Ok(DocNode::String(name.clone()));
+                    return Ok(Some(DocNode::String(name.clone())));
                 }
                 Err(self.type_mismatch::<S>(ipld, schema))
             }
@@ -231,10 +317,18 @@ impl GraphBuilder {
                 for (key, map_value) in map {
                     out.insert(
                         key.clone(),
-                        self.export_value(&child_cursor, map_value, value_schema.value())?,
+                        self.export_value(
+                            &child_cursor,
+                            map_value,
+                            value_schema.value(),
+                            ExportContext::Normal,
+                        )?
+                        .ok_or_else(|| {
+                            ExportError::Format("map value cannot be omitted".to_string())
+                        })?,
                     );
                 }
-                Ok(DocNode::Object(out))
+                Ok(Some(DocNode::Object(out)))
             }
             (Ipld::List(entries), Structure::OrderedMap { key, value }) => {
                 let (key_schema, key_schema_scope) = cursor.resolve_child_schema(key.cid())?;
@@ -246,8 +340,26 @@ impl GraphBuilder {
                 for entry in entries {
                     match entry {
                         Ipld::List(pair) if pair.len() == 2 => out.push(DocNode::Array(vec![
-                            self.export_value(&key_cursor, &pair[0], key_schema.value())?,
-                            self.export_value(&value_cursor, &pair[1], value_schema.value())?,
+                            self.export_value(
+                                &key_cursor,
+                                &pair[0],
+                                key_schema.value(),
+                                ExportContext::Normal,
+                            )?
+                            .ok_or_else(|| {
+                                ExportError::Format("ordered map key cannot be omitted".to_string())
+                            })?,
+                            self.export_value(
+                                &value_cursor,
+                                &pair[1],
+                                value_schema.value(),
+                                ExportContext::Normal,
+                            )?
+                            .ok_or_else(|| {
+                                ExportError::Format(
+                                    "ordered map value cannot be omitted".to_string(),
+                                )
+                            })?,
                         ])),
                         other => {
                             return Err(ExportError::Format(format!(
@@ -257,18 +369,18 @@ impl GraphBuilder {
                         }
                     }
                 }
-                Ok(DocNode::Array(out))
+                Ok(Some(DocNode::Array(out)))
             }
-            (Ipld::Null, Structure::Unit) => Ok(DocNode::Null),
-            (Ipld::Bool(value), Structure::Bool) => Ok(DocNode::Bool(*value)),
-            (Ipld::Integer(value), Structure::Int(_)) => Ok(DocNode::Integer(*value)),
-            (Ipld::Float(value), Structure::Float(_)) => Ok(DocNode::Float(*value)),
+            (Ipld::Null, Structure::Unit) => Ok(Some(DocNode::Null)),
+            (Ipld::Bool(value), Structure::Bool) => Ok(Some(DocNode::Bool(*value))),
+            (Ipld::Integer(value), Structure::Int(_)) => Ok(Some(DocNode::Integer(*value))),
+            (Ipld::Float(value), Structure::Float(_)) => Ok(Some(DocNode::Float(*value))),
             (Ipld::String(value), Structure::Unicode | Structure::Char) => {
-                Ok(DocNode::String(value.clone()))
+                Ok(Some(DocNode::String(value.clone())))
             }
             (Ipld::Bytes(bytes), Structure::ByteString) => {
                 use base64::{Engine, engine::general_purpose::STANDARD};
-                Ok(DocNode::String(STANDARD.encode(bytes)))
+                Ok(Some(DocNode::String(STANDARD.encode(bytes))))
             }
             _ => Err(self.type_mismatch::<S>(ipld, schema)),
         }

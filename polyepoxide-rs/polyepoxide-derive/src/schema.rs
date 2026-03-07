@@ -310,7 +310,7 @@ fn type_to_schema(
                                 type_to_schema(&inner, self_type, crate_path, generic_slot_map);
                             return (
                                 quote! {
-                                    #crate_path::Bond::new(#crate_path::Structure::Sequence(#inner_schema))
+                                    #crate_path::Structure::option(#inner_schema)
                                 },
                                 usage,
                             );

@@ -64,6 +64,45 @@ pub mod option_as_array {
     }
 }
 
+/// Serialize named record-field `Option<T>` as omitted/direct inner value.
+///
+/// This preserves Polyepoxide's `Option` encoding for nested `T` by routing
+/// through `Oxide::to_bytes` / `Oxide::from_bytes` rather than Serde's native
+/// `Option` encoding.
+pub mod option_as_field {
+    use crate::Oxide;
+    use ipld_core::ipld::Ipld;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<T, S>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: Oxide,
+        S: Serializer,
+    {
+        match value {
+            None => serializer.serialize_none(),
+            Some(v) => {
+                let bytes = v.to_bytes();
+                let ipld: Ipld = serde_ipld_dagcbor::from_slice(&bytes)
+                    .map_err(serde::ser::Error::custom)?;
+                ipld.serialize(serializer)
+            }
+        }
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        T: Oxide,
+        D: Deserializer<'de>,
+    {
+        let ipld = Ipld::deserialize(deserializer)?;
+        let bytes = serde_ipld_dagcbor::to_vec(&ipld).map_err(serde::de::Error::custom)?;
+        T::from_bytes(&bytes)
+            .map(Some)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 /// Serialize `Result<T, E>` with lowercase keys: `{"ok": x}` or `{"err": e}`.
 pub mod result_lowercase {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -141,6 +180,17 @@ mod tests {
         value: Option<i32>,
     }
 
+    #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, crate::Oxide)]
+    #[oxide(crate = crate)]
+    struct NestedOptionField {
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "option_as_field"
+        )]
+        value: Option<Option<i32>>,
+    }
+
     #[test]
     fn option_none_as_empty_array() {
         let v = WithOption { value: None };
@@ -196,6 +246,16 @@ mod tests {
         let v = WithIndexMap { value: map };
         let bytes = to_dagcbor(&v);
         let recovered: WithIndexMap = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
+        assert_eq!(recovered, v);
+    }
+
+    #[test]
+    fn option_field_preserves_inner_option_array_encoding() {
+        let v = NestedOptionField {
+            value: Some(None),
+        };
+        let bytes = to_dagcbor(&v);
+        let recovered: NestedOptionField = serde_ipld_dagcbor::from_slice(&bytes).unwrap();
         assert_eq!(recovered, v);
     }
 }

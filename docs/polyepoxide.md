@@ -63,6 +63,7 @@ In practical terms, an implementation should expose methods equivalent to: `sche
 | `Int(...)` | CBOR integer | signed and unsigned integer widths | `u8..u64`, `i8..i64` |
 | `Float(F32/F64)` | CBOR float | `f32` / `f64` | `f32` / `f64` |
 | `Unit` | unit value | `unit` | `()` |
+| `Option(T)` | list of length 0 or 1; named record fields use omitted/direct inner-value encoding instead | `option<T>` | `Option<T>` |
 | `Sequence(T)` | list | `list<T>` | `Vec<T>` |
 | `Tuple([A,B,..])` | fixed list | tuple | `(A,B,...)` |
 | `Record` | map or field-ordered record encoding | record | `struct` |
@@ -74,7 +75,7 @@ In practical terms, an implementation should expose methods equivalent to: `sche
 
 In practical IPLD terms, `Map` is best suited for unordered text-key maps. `OrderedMap` is the portable way to preserve order and support non-text keys, because it is encoded as explicit key/value pairs.
 
-For cross-language parity, language-specific encoding and mapping rules should also document container encodings for host-language sum/optional types (for example, `Option`-like and `Result`-like values) when those are mapped through `Structure::Sequence`/`Structure::Tagged`.
+For cross-language parity, language-specific mappings should document container encodings for host-language sum/optional types. `Option<T>` maps to `Structure::Option`. Non-record positions use the list-of-length-0-or-1 encoding in both DAG-CBOR and document import/export. Named record fields instead use omitted/direct inner-value encoding in both DAG-CBOR and document import/export. This keeps stored CBOR and YAML/JSON behavior aligned, while still preserving the array form for standalone and container-nested options. `Result<T, E>` maps through `Structure::Tagged`.
 
 #### Polyepoxide Data Structures
 

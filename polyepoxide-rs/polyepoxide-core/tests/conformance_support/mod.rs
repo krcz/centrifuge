@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 use polyepoxide_core::{
-    Bond, Cid, ErasedBond, ExportFormat, ExportOptions, ExportProfile, ImportFormat, ImportMode,
-    ImportOptions, MemoryStore, Oxide, Solvent, Store, Structure, export, import, key_from_cid,
-    load_schema_recursive, resolve_reflexive_with_store,
+    Bond, Cid, ErasedBond, ExportFormat, ExportOptions, ExportProfile, ImportError, ImportFormat,
+    ImportMode, ImportOptions, MemoryStore, Oxide, Solvent, Store, Structure, export, import,
+    key_from_cid, load_schema_recursive, resolve_reflexive_with_store,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -39,6 +39,13 @@ pub struct ProcedureStep {
 pub struct ProcedureWheel {
     pub campaign: String,
     pub entry: Bond<ProcedureStep>,
+}
+
+#[polyepoxide_core::oxide]
+pub struct OptionalRecord {
+    pub name: String,
+    pub note: Option<String>,
+    pub nested: Option<Option<String>>,
 }
 
 pub struct ImportedFixture<T: Oxide> {
@@ -118,6 +125,52 @@ pub fn import_fixture<T: Oxide>(
         store,
         schemas: schema.schemas,
     }
+}
+
+pub fn import_text<T: Oxide>(
+    text: &str,
+    format: ImportFormat,
+    mode: ImportMode,
+) -> ImportedFixture<T> {
+    let store = MemoryStore::new();
+    let schemas = Solvent::new();
+    let schema_cid = schemas.add_bond(&T::schema()).cid();
+    let root_cid = import(
+        text,
+        format,
+        schema_cid,
+        &store,
+        &schemas,
+        &ImportOptions { mode },
+    )
+    .unwrap();
+    let value = decode_root::<T>(&store, root_cid);
+    ImportedFixture {
+        value,
+        root_cid,
+        schema_cid,
+        store,
+        schemas,
+    }
+}
+
+pub fn import_text_err<T: Oxide>(
+    text: &str,
+    format: ImportFormat,
+    mode: ImportMode,
+) -> ImportError {
+    let store = MemoryStore::new();
+    let schemas = Solvent::new();
+    let schema_cid = schemas.add_bond(&T::schema()).cid();
+    import(
+        text,
+        format,
+        schema_cid,
+        &store,
+        &schemas,
+        &ImportOptions { mode },
+    )
+    .unwrap_err()
 }
 
 pub fn export_schema_fixture<T: Oxide>(

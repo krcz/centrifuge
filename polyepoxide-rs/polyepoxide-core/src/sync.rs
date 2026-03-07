@@ -246,6 +246,51 @@ where
                 }
             }
         }
+        Structure::Option(inner) => {
+            if let Some((inner_schema, inner_schema_scope)) = resolve_schema_cid(
+                source,
+                dest,
+                inner.cid(),
+                schema_scope,
+                schemas,
+                transferred,
+            )
+            .await?
+            {
+                match value {
+                    Ipld::List(arr) => {
+                        for elem in arr {
+                            Box::pin(pull_dependencies(
+                                source,
+                                dest,
+                                elem,
+                                inner_schema.value(),
+                                schemas,
+                                transferred,
+                                scope,
+                                &inner_schema_scope,
+                                visited,
+                            ))
+                            .await?;
+                        }
+                    }
+                    other => {
+                        Box::pin(pull_dependencies(
+                            source,
+                            dest,
+                            other,
+                            inner_schema.value(),
+                            schemas,
+                            transferred,
+                            scope,
+                            &inner_schema_scope,
+                            visited,
+                        ))
+                        .await?;
+                    }
+                }
+            }
+        }
         Structure::Sequence(inner) => {
             if let Ipld::List(arr) = value {
                 if let Some((inner_schema, inner_schema_scope)) = resolve_schema_cid(
@@ -562,38 +607,33 @@ mod tests {
     // Complex test structures using derive macro with crate path override
     // Use #[oxide(crate = crate)] to make derive work inside the crate
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Oxide)]
-    #[oxide(crate = crate)]
+    #[crate::oxide(crate = crate)]
     struct Author {
         name: String,
         bio: String,
     }
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Oxide)]
-    #[oxide(crate = crate)]
+    #[crate::oxide(crate = crate)]
     struct Chapter {
         title: String,
         page_count: u32,
         author: Bond<Author>,
     }
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Oxide)]
-    #[oxide(crate = crate)]
+    #[crate::oxide(crate = crate)]
     struct Book {
         title: String,
         year: u32,
         chapters: Vec<Bond<Chapter>>,
     }
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Oxide)]
-    #[oxide(crate = crate)]
+    #[crate::oxide(crate = crate)]
     struct Ring {
         name: String,
         next: Bond<Ring>,
     }
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Oxide)]
-    #[oxide(crate = crate)]
+    #[crate::oxide(crate = crate)]
     struct Root {
         head: Bond<Ring>,
     }
