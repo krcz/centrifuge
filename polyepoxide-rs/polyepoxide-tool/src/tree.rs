@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use cid::Cid;
 use ipld_core::ipld::Ipld;
-use polyepoxide_core::traverse::parse_to_ipld;
-use polyepoxide_core::{key_from_cid, Cell, Oxide, Solvent, Store, Structure};
+use polyepoxide_core::{
+    Cell, CursorState, Oxide, Solvent, StoreCursor, Structure, load_schema_recursive,
+};
 use tui_tree_widget::TreeItem;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -52,6 +53,8 @@ pub struct NodeData {
     pub cid: Option<Cid>,
     /// CID of the schema for this node.
     pub schema_cid: Cid,
+    /// Active schema scope for this node.
+    pub schema_scope: Vec<Cid>,
     /// Human-readable type hint.
     pub type_hint: String,
     /// Display string for the node.
@@ -60,6 +63,8 @@ pub struct NodeData {
     pub children: Vec<NodeId>,
     /// Active reflexive context scope for this node.
     pub context: Vec<Cid>,
+    /// Cursor state needed for zooming or resolving nested schemas.
+    pub cursor_state: CursorState,
 }
 
 /// Breadcrumb entry for zoom navigation.
@@ -68,6 +73,7 @@ pub struct Breadcrumb {
     pub cid: Cid,
     pub schema_cid: Cid,
     pub context: Vec<Cid>,
+    pub schema_scope: Vec<Cid>,
     pub label: String,
 }
 
@@ -89,6 +95,8 @@ pub struct TreeModel {
     root_schema_cid: Cid,
     /// Current reflexive context.
     root_context: Vec<Cid>,
+    /// Current schema reflexive context.
+    root_schema_scope: Vec<Cid>,
 }
 
 impl TreeModel {
@@ -107,6 +115,7 @@ impl TreeModel {
             root_cid,
             root_schema_cid,
             root_context: Vec::new(),
+            root_schema_scope: Vec::new(),
         };
 
         // Load schema
@@ -122,83 +131,21 @@ impl TreeModel {
         &mut self,
         cid: Cid,
     ) -> Result<Arc<Cell<Structure>>, Box<dyn std::error::Error>> {
-        if let Some(cell) = self.schemas.get::<Structure>(&cid) {
-            return Ok(cell);
-        }
-
-        let bytes = self
-            .store
-            .get(&key_from_cid(&cid))?
-            .ok_or_else(|| format!("schema not found: {}", cid))?;
-
-        let schema: Structure = serde_ipld_dagcbor::from_slice(&bytes)?;
-
-        // Recursively load nested schemas
-        self.load_nested_schemas(&schema)?;
-
-        Ok(self.schemas.add(schema))
-    }
-
-    fn load_nested_schemas(
-        &mut self,
-        schema: &Structure,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        match schema {
-            Structure::Sequence(inner) | Structure::Bond(inner) => {
-                let cid = inner.cid();
-                if self.schemas.get::<Structure>(&cid).is_none() {
-                    self.load_schema(cid)?;
-                }
-            }
-            Structure::Tuple(elems) => {
-                for elem in elems {
-                    let cid = elem.cid();
-                    if self.schemas.get::<Structure>(&cid).is_none() {
-                        self.load_schema(cid)?;
-                    }
-                }
-            }
-            Structure::Record(fields) | Structure::Tagged(fields) => {
-                for (_, field) in fields {
-                    let cid = field.cid();
-                    if self.schemas.get::<Structure>(&cid).is_none() {
-                        self.load_schema(cid)?;
-                    }
-                }
-            }
-            Structure::Map { key: k, value: v } | Structure::OrderedMap { key: k, value: v } => {
-                let kk = k.cid();
-                let vk = v.cid();
-                if self.schemas.get::<Structure>(&kk).is_none() {
-                    self.load_schema(kk)?;
-                }
-                if self.schemas.get::<Structure>(&vk).is_none() {
-                    self.load_schema(vk)?;
-                }
-            }
-            _ => {}
-        }
-        Ok(())
+        Ok(load_schema_recursive(&self.store, &self.schemas, cid)?)
     }
 
     fn rebuild_tree(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.nodes.clear();
         self.roots.clear();
-
-        let bytes = self
-            .store
-            .get(&key_from_cid(&self.root_cid))?
-            .ok_or_else(|| format!("value not found: {}", self.root_cid))?;
-
-        let ipld = parse_to_ipld(&bytes)?;
-        let schema_cell = self.load_schema(self.root_schema_cid)?;
-        let schema = schema_cell.value();
-
+        let root_cursor =
+            StoreCursor::new(&self.store, &self.schemas, self.root_cid, self.root_schema_cid)?;
+        let root_state = root_cursor.state();
+        self.root_schema_cid = root_state.schema_cid;
+        self.root_schema_scope = root_state.schema_scope.clone();
+        let ipld = root_cursor.ipld()?;
         let node_id = NodeId::root(&self.root_cid);
         let label = short_cid(&self.root_cid);
-
-        let root_context = self.root_context.clone();
-        self.build_node(&node_id, &label, &ipld, schema, &root_context)?;
+        self.build_node(&node_id, &label, &ipld, root_state)?;
         self.roots.push(node_id);
 
         Ok(())
@@ -209,24 +156,30 @@ impl TreeModel {
         node_id: &NodeId,
         label: &str,
         ipld: &Ipld,
-        schema: &Structure,
-        context: &[Cid],
+        cursor_state: CursorState,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let type_hint = self.schema_to_type_hint(schema);
-        let display = self.format_node_display(label, ipld, schema);
-        let cid = self.extract_cid(ipld, schema, context);
-
-        let children = self.collect_children(node_id, ipld, schema, context)?;
+        let cursor = StoreCursor::from_state(&self.store, &self.schemas, cursor_state.clone());
+        let schema = cursor.schema()?.value().clone();
+        let schema_cid = cursor.schema_cid();
+        let schema_scope = cursor.schema_scope().to_vec();
+        let context = cursor.scope().to_vec();
+        let type_hint = self.schema_to_type_hint(&schema);
+        let display = self.format_node_display(label, ipld, &schema);
+        let cid = self.extract_cid(ipld, &schema, &context);
+        drop(cursor);
+        let children = self.collect_children(node_id, ipld, cursor_state.clone())?;
 
         self.nodes.insert(
             node_id.clone(),
             NodeData {
                 cid,
-                schema_cid: self.root_schema_cid, // simplified
+                schema_cid,
+                schema_scope,
                 type_hint,
                 display,
                 children,
-                context: context.to_vec(),
+                context,
+                cursor_state,
             },
         );
 
@@ -237,34 +190,54 @@ impl TreeModel {
         &mut self,
         parent_id: &NodeId,
         ipld: &Ipld,
-        schema: &Structure,
-        context: &[Cid],
+        cursor_state: CursorState,
     ) -> Result<Vec<NodeId>, Box<dyn std::error::Error>> {
         let mut children = Vec::new();
+        let cursor = StoreCursor::from_state(&self.store, &self.schemas, cursor_state.clone());
+        let schema = cursor.schema()?.value().clone();
+        drop(cursor);
 
-        match schema {
+        match &schema {
             Structure::Record(fields) => {
                 if let Ipld::Map(map) = ipld {
                     for (name, field_schema_bond) in fields {
                         if let Some(fv) = map.get(name) {
-                            if let Some(field_schema) = field_schema_bond.value() {
-                                let child_id = NodeId::child(parent_id.as_str(), name);
-                                self.build_node(&child_id, name, fv, field_schema, context)?;
-                                children.push(child_id);
-                            }
+                            let field_state =
+                                self.child_schema_state(&cursor_state, field_schema_bond.cid())?;
+                            let child_id = NodeId::child(parent_id.as_str(), name);
+                            self.build_node(&child_id, name, fv, field_state)?;
+                            children.push(child_id);
                         }
+                    }
+                }
+            }
+            Structure::Option(inner) => {
+                let inner_state = self.child_schema_state(&cursor_state, inner.cid())?;
+                match ipld {
+                    Ipld::List(arr) => {
+                        for (i, elem) in arr.iter().enumerate() {
+                            let idx = format!("[{}]", i);
+                            let child_id = NodeId::child(parent_id.as_str(), &idx);
+                            self.build_node(&child_id, &idx, elem, inner_state.clone())?;
+                            children.push(child_id);
+                        }
+                    }
+                    Ipld::Null => {}
+                    value => {
+                        let child_id = NodeId::child(parent_id.as_str(), "some");
+                        self.build_node(&child_id, "some", value, inner_state)?;
+                        children.push(child_id);
                     }
                 }
             }
             Structure::Sequence(inner) => {
                 if let Ipld::List(arr) = ipld {
-                    if let Some(inner_schema) = inner.value() {
-                        for (i, elem) in arr.iter().enumerate() {
-                            let idx = format!("[{}]", i);
-                            let child_id = NodeId::child(parent_id.as_str(), &idx);
-                            self.build_node(&child_id, &idx, elem, inner_schema, context)?;
-                            children.push(child_id);
-                        }
+                    let inner_state = self.child_schema_state(&cursor_state, inner.cid())?;
+                    for (i, elem) in arr.iter().enumerate() {
+                        let idx = format!("[{}]", i);
+                        let child_id = NodeId::child(parent_id.as_str(), &idx);
+                        self.build_node(&child_id, &idx, elem, inner_state.clone())?;
+                        children.push(child_id);
                     }
                 }
             }
@@ -273,12 +246,12 @@ impl TreeModel {
                     for (i, (elem_schema_bond, elem_val)) in
                         elems.iter().zip(arr.iter()).enumerate()
                     {
-                        if let Some(elem_schema) = elem_schema_bond.value() {
-                            let idx = format!("[{}]", i);
-                            let child_id = NodeId::child(parent_id.as_str(), &idx);
-                            self.build_node(&child_id, &idx, elem_val, elem_schema, context)?;
-                            children.push(child_id);
-                        }
+                        let elem_state =
+                            self.child_schema_state(&cursor_state, elem_schema_bond.cid())?;
+                        let idx = format!("[{}]", i);
+                        let child_id = NodeId::child(parent_id.as_str(), &idx);
+                        self.build_node(&child_id, &idx, elem_val, elem_state)?;
+                        children.push(child_id);
                     }
                 }
             }
@@ -287,11 +260,11 @@ impl TreeModel {
                     if map.len() == 1 {
                         if let Some((name, val)) = map.iter().next() {
                             if let Some(variant_schema_bond) = variants.get(name) {
-                                if let Some(variant_schema) = variant_schema_bond.value() {
-                                    let child_id = NodeId::child(parent_id.as_str(), name);
-                                    self.build_node(&child_id, name, val, variant_schema, context)?;
-                                    children.push(child_id);
-                                }
+                                let variant_state = self
+                                    .child_schema_state(&cursor_state, variant_schema_bond.cid())?;
+                                let child_id = NodeId::child(parent_id.as_str(), name);
+                                self.build_node(&child_id, name, val, variant_state)?;
+                                children.push(child_id);
                             }
                         }
                     }
@@ -299,66 +272,81 @@ impl TreeModel {
             }
             Structure::Map { value: v, .. } => {
                 if let Ipld::Map(map) = ipld {
-                    if let Some(vs) = v.value() {
-                        for (mk, mv) in map {
-                            let child_id = NodeId::child(parent_id.as_str(), mk);
-                            self.build_node(&child_id, mk, mv, vs, context)?;
-                            children.push(child_id);
-                        }
+                    let value_state = self.child_schema_state(&cursor_state, v.cid())?;
+                    for (mk, mv) in map {
+                        let child_id = NodeId::child(parent_id.as_str(), mk);
+                        self.build_node(&child_id, mk, mv, value_state.clone())?;
+                        children.push(child_id);
                     }
                 }
             }
             Structure::OrderedMap { key: k, value: v } => {
-                if let (Some(ks), Some(vs)) = (k.value(), v.value()) {
-                    if let Ipld::List(entries) = ipld {
-                        for (i, entry) in entries.iter().enumerate() {
-                            if let Ipld::List(pair) = entry {
-                                if pair.len() == 2 {
-                                    let key_label = format!("[{}].key", i);
-                                    let key_id = NodeId::child(parent_id.as_str(), &key_label);
-                                    self.build_node(&key_id, &key_label, &pair[0], ks, context)?;
-                                    children.push(key_id);
+                if let Ipld::List(entries) = ipld {
+                    let key_state = self.child_schema_state(&cursor_state, k.cid())?;
+                    let value_state = self.child_schema_state(&cursor_state, v.cid())?;
+                    for (i, entry) in entries.iter().enumerate() {
+                        if let Ipld::List(pair) = entry {
+                            if pair.len() == 2 {
+                                let key_label = format!("[{}].key", i);
+                                let key_id = NodeId::child(parent_id.as_str(), &key_label);
+                                self.build_node(&key_id, &key_label, &pair[0], key_state.clone())?;
+                                children.push(key_id);
 
-                                    let val_label = format!("[{}].value", i);
-                                    let val_id = NodeId::child(parent_id.as_str(), &val_label);
-                                    self.build_node(&val_id, &val_label, &pair[1], vs, context)?;
-                                    children.push(val_id);
-                                }
+                                let val_label = format!("[{}].value", i);
+                                let val_id = NodeId::child(parent_id.as_str(), &val_label);
+                                self.build_node(
+                                    &val_id,
+                                    &val_label,
+                                    &pair[1],
+                                    value_state.clone(),
+                                )?;
+                                children.push(val_id);
                             }
                         }
                     }
                 }
             }
             Structure::Bond(inner) => {
-                // For bonds, load the referenced value if available
                 if let Ipld::Link(target_cid) = ipld {
-                    let resolved = polyepoxide_core::resolve_reflexive_with_store(
-                        &self.store,
-                        *target_cid,
-                        context,
-                    )?;
-                    if let Some((resolved_cid, next_scope)) = resolved {
-                        if let Ok(Some(target_bytes)) = self.store.get(&key_from_cid(&resolved_cid))
-                        {
-                            if let Ok(target_ipld) = parse_to_ipld(&target_bytes) {
-                                if let Some(inner_schema) = inner.value() {
-                                    let nested = self.collect_children(
-                                        parent_id,
-                                        &target_ipld,
-                                        inner_schema,
-                                        &next_scope,
-                                    )?;
-                                    children.extend(nested);
-                                }
-                            }
-                        }
-                    }
+                    let (followed_state, target_ipld) =
+                        self.follow_bond_state(&cursor_state, *target_cid, inner.cid())?;
+                    let nested = self.collect_children(parent_id, &target_ipld, followed_state)?;
+                    children.extend(nested);
                 }
             }
-            _ => {}
+            Structure::Enum(_) => {}
+            Structure::Bool
+            | Structure::Char
+            | Structure::Unicode
+            | Structure::ByteString
+            | Structure::Cid
+            | Structure::Int(_)
+            | Structure::Float(_)
+            | Structure::Unit => {}
         }
 
         Ok(children)
+    }
+
+    fn child_schema_state(
+        &self,
+        cursor_state: &CursorState,
+        child_schema_cid: Cid,
+    ) -> Result<CursorState, Box<dyn std::error::Error>> {
+        let cursor = StoreCursor::from_state(&self.store, &self.schemas, cursor_state.clone());
+        Ok(cursor.child_schema_cursor(child_schema_cid)?.state())
+    }
+
+    fn follow_bond_state(
+        &self,
+        cursor_state: &CursorState,
+        target_cid: Cid,
+        inner_schema_cid: Cid,
+    ) -> Result<(CursorState, Ipld), Box<dyn std::error::Error>> {
+        let cursor = StoreCursor::from_state(&self.store, &self.schemas, cursor_state.clone());
+        let followed = cursor.follow_bond(target_cid, inner_schema_cid)?;
+        let ipld = followed.ipld()?;
+        Ok((followed.state(), ipld))
     }
 
     fn format_node_display(&self, label: &str, ipld: &Ipld, schema: &Structure) -> String {
@@ -400,6 +388,13 @@ impl TreeModel {
             Structure::Int(t) => format!("{:?}", t),
             Structure::Float(t) => format!("{:?}", t),
             Structure::Unit => "Unit".to_string(),
+            Structure::Option(inner) => {
+                let inner_hint = inner
+                    .value()
+                    .map(|s| self.schema_to_type_hint(s))
+                    .unwrap_or_else(|| "?".to_string());
+                format!("Option<{}>", inner_hint)
+            }
             Structure::Sequence(inner) => {
                 let inner_hint = inner
                     .value()
@@ -508,20 +503,22 @@ impl TreeModel {
             cid: self.root_cid,
             schema_cid: self.root_schema_cid,
             context: self.root_context.clone(),
+            schema_scope: self.root_schema_scope.clone(),
             label: short_cid(&self.root_cid),
         });
 
-        // Load schema for bond target
-        let schema_cell = self.load_schema(node.schema_cid)?;
-        let inner_schema_cid = if let Structure::Bond(inner) = schema_cell.value() {
-            inner.cid()
+        let schema_cursor = StoreCursor::from_state(&self.store, &self.schemas, node.cursor_state);
+        let schema_cell = schema_cursor.schema()?;
+        let target_cursor = if let Structure::Bond(inner) = schema_cell.value() {
+            schema_cursor.follow_bond(target_cid, inner.cid())?
         } else {
-            node.schema_cid
+            schema_cursor
         };
 
         self.root_cid = target_cid;
-        self.root_schema_cid = inner_schema_cid;
-        self.root_context = node.context;
+        self.root_schema_cid = target_cursor.schema_cid();
+        self.root_context = target_cursor.scope().to_vec();
+        self.root_schema_scope = target_cursor.schema_scope().to_vec();
         self.rebuild_tree()?;
 
         Ok(true)
@@ -537,6 +534,7 @@ impl TreeModel {
         self.root_cid = crumb.cid;
         self.root_schema_cid = crumb.schema_cid;
         self.root_context = crumb.context;
+        self.root_schema_scope = crumb.schema_scope;
         self.rebuild_tree()?;
 
         Ok(true)
@@ -556,6 +554,7 @@ impl TreeModel {
             cid: self.root_cid,
             schema_cid: self.root_schema_cid,
             context: self.root_context.clone(),
+            schema_scope: self.root_schema_scope.clone(),
             label: short_cid(&self.root_cid),
         });
 
@@ -563,6 +562,7 @@ impl TreeModel {
         self.root_cid = schema_cid;
         self.root_schema_cid = Structure::schema().cid();
         self.root_context = Vec::new();
+        self.root_schema_scope = Vec::new();
         self.rebuild_tree()?;
 
         Ok(true)

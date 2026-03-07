@@ -71,6 +71,17 @@ impl<'a, S: Store + ?Sized> StoreCursor<'a, S> {
         }
     }
 
+    pub fn from_state(store: &'a S, schemas: &'a Solvent, state: CursorState) -> Self {
+        Self::with_state(
+            store,
+            schemas,
+            state.value_cid,
+            state.schema_cid,
+            state.scope,
+            state.schema_scope,
+        )
+    }
+
     pub(crate) fn with_schema(&self, schema_cid: Cid, schema_scope: Vec<Cid>) -> Self {
         Self {
             store: self.store,
@@ -107,13 +118,17 @@ impl<'a, S: Store + ?Sized> StoreCursor<'a, S> {
     }
 
     pub fn occurrence_id(&self) -> String {
-        let state = CursorState {
+        let state = self.state();
+        format!("urn:px-occ:{}", state.compute_cid())
+    }
+
+    pub fn state(&self) -> CursorState {
+        CursorState {
             value_cid: self.value_cid,
             schema_cid: self.schema_cid,
             scope: self.scope.clone(),
             schema_scope: self.schema_scope.clone(),
-        };
-        format!("urn:px-occ:{}", state.compute_cid())
+        }
     }
 
     pub fn schema(&self) -> Result<Arc<Cell<Structure>>, ExportError<S::Error>> {
@@ -128,6 +143,11 @@ impl<'a, S: Store + ?Sized> StoreCursor<'a, S> {
             resolve_schema_cid(self.store, self.schemas, cid, &self.schema_scope)?;
         let schema = ensure_schema(self.store, self.schemas, schema_cid)?;
         Ok((schema, schema_scope))
+    }
+
+    pub fn child_schema_cursor(&self, cid: Cid) -> Result<Self, ExportError<S::Error>> {
+        let (schema, schema_scope) = self.resolve_child_schema(cid)?;
+        Ok(self.with_schema(schema.cid(), schema_scope))
     }
 
     pub fn ipld(&self) -> Result<Ipld, ExportError<S::Error>> {
