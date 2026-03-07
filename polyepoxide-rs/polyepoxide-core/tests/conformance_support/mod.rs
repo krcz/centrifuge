@@ -155,6 +155,8 @@ pub fn export_schema_fixture<T: Oxide>(
         &ExportOptions {
             profile,
             pretty: true,
+            unwrap_top_level_occurrence: false,
+            exclude_top_level_fields: Vec::new(),
         },
     )
     .unwrap();
@@ -175,6 +177,8 @@ pub fn export_imported<T: Oxide>(
         &ExportOptions {
             profile,
             pretty: true,
+            unwrap_top_level_occurrence: false,
+            exclude_top_level_fields: Vec::new(),
         },
     )
     .unwrap()
@@ -200,6 +204,8 @@ pub fn persist_export<T: Oxide>(
         &ExportOptions {
             profile,
             pretty: true,
+            unwrap_top_level_occurrence: false,
+            exclude_top_level_fields: Vec::new(),
         },
     )
     .unwrap();

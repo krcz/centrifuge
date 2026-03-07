@@ -2,6 +2,7 @@ use cid::Cid;
 use indexmap::IndexMap;
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -268,9 +269,33 @@ where
     }
 }
 
+impl<K, V> Oxide for HashMap<K, V>
+where
+    K: Oxide + Eq + Hash,
+    V: Oxide,
+{
+    fn schema() -> Bond<Structure> {
+        Structure::map(K::schema(), V::schema())
+    }
+
+    fn visit_bonds(&self, visitor: &mut dyn BondVisitor) {
+        for (key, value) in self {
+            key.visit_bonds(visitor);
+            value.visit_bonds(visitor);
+        }
+    }
+
+    fn dissolve_in(&self, solvent: &Solvent) -> Self {
+        self.iter()
+            .map(|(key, value)| (key.dissolve_in(solvent), value.dissolve_in(solvent)))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn primitive_cid_deterministic() {
@@ -285,6 +310,25 @@ mod tests {
         let bytes = s.to_bytes();
         let recovered: String = Oxide::from_bytes(&bytes).unwrap();
         assert_eq!(s, recovered);
+    }
+
+    #[test]
+    fn hashmap_uses_unordered_map_schema() {
+        match <HashMap<String, u32> as Oxide>::schema().value().unwrap() {
+            Structure::Map { .. } => {}
+            other => panic!("expected Structure::Map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hashmap_roundtrip() {
+        let mut map = HashMap::new();
+        map.insert("alpha".to_string(), 1u32);
+        map.insert("beta".to_string(), 2u32);
+
+        let bytes = map.to_bytes();
+        let recovered: HashMap<String, u32> = Oxide::from_bytes(&bytes).unwrap();
+        assert_eq!(recovered, map);
     }
 
     #[test]

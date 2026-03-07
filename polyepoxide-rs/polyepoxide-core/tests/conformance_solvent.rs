@@ -39,6 +39,8 @@ fn imported_fixture_can_be_loaded_into_solvent_and_exported() {
         &ExportOptions {
             profile: ExportProfile::Direct,
             pretty: true,
+            unwrap_top_level_occurrence: false,
+            exclude_top_level_fields: Vec::new(),
         },
     )
     .unwrap();

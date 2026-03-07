@@ -122,6 +122,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let options = ExportOptions {
                 profile,
                 pretty: true,
+                unwrap_top_level_occurrence: false,
+                exclude_top_level_fields: Vec::new(),
             };
 
             let schemas = Solvent::new();

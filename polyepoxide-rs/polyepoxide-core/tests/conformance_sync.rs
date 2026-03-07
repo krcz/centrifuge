@@ -43,6 +43,8 @@ async fn imported_fixture_pulls_between_stores() {
         &ExportOptions {
             profile: ExportProfile::Direct,
             pretty: true,
+            unwrap_top_level_occurrence: false,
+            exclude_top_level_fields: Vec::new(),
         },
     )
     .unwrap();

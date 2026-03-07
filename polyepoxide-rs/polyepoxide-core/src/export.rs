@@ -23,10 +23,12 @@ pub enum ExportProfile {
     Direct,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportOptions {
     pub profile: ExportProfile,
     pub pretty: bool,
+    pub unwrap_top_level_occurrence: bool,
+    pub exclude_top_level_fields: Vec<String>,
 }
 
 impl Default for ExportOptions {
@@ -34,6 +36,8 @@ impl Default for ExportOptions {
         Self {
             profile: ExportProfile::Full,
             pretty: true,
+            unwrap_top_level_occurrence: false,
+            exclude_top_level_fields: Vec::new(),
         }
     }
 }
@@ -351,7 +355,10 @@ pub fn export<S: Store + ?Sized>(
     options: &ExportOptions,
 ) -> Result<String, ExportError<S::Error>> {
     let mut builder = GraphBuilder::new(options.profile);
-    let root = builder.build_root(store, schemas, root_cid, schema_cid)?;
+    let root = apply_export_options(
+        builder.build_root(store, schemas, root_cid, schema_cid)?,
+        options,
+    );
 
     match format {
         ExportFormat::JsonLd => {
@@ -359,6 +366,40 @@ pub fn export<S: Store + ?Sized>(
         }
         ExportFormat::YamlLd => render_yaml_ld(&root).map_err(ExportError::Render),
         ExportFormat::Yaml => render_yaml(&root).map_err(ExportError::Render),
+    }
+}
+
+fn apply_export_options(mut root: DocNode, options: &ExportOptions) -> DocNode {
+    if options.profile == ExportProfile::Direct && options.unwrap_top_level_occurrence {
+        if let DocNode::Occurrence { data, .. } = root {
+            root = *data;
+        }
+    }
+
+    if options.exclude_top_level_fields.is_empty() {
+        return root;
+    }
+
+    match &mut root {
+        DocNode::Occurrence { data, .. } => {
+            exclude_object_fields(data, &options.exclude_top_level_fields)
+        }
+        DocNode::Object(map) => {
+            for field in &options.exclude_top_level_fields {
+                map.shift_remove(field);
+            }
+        }
+        _ => {}
+    }
+
+    root
+}
+
+fn exclude_object_fields(node: &mut DocNode, fields: &[String]) {
+    if let DocNode::Object(map) = node {
+        for field in fields {
+            map.shift_remove(field);
+        }
     }
 }
 
@@ -710,6 +751,8 @@ mod tests {
             &ExportOptions {
                 profile: ExportProfile::Full,
                 pretty: false,
+                unwrap_top_level_occurrence: false,
+                exclude_top_level_fields: Vec::new(),
             },
         )
         .unwrap();
@@ -744,6 +787,8 @@ mod tests {
             &ExportOptions {
                 profile: ExportProfile::Canonical,
                 pretty: false,
+                unwrap_top_level_occurrence: false,
+                exclude_top_level_fields: Vec::new(),
             },
         )
         .unwrap();
@@ -776,6 +821,8 @@ mod tests {
             &ExportOptions {
                 profile: ExportProfile::Direct,
                 pretty: false,
+                unwrap_top_level_occurrence: false,
+                exclude_top_level_fields: Vec::new(),
             },
         )
         .unwrap();
@@ -811,5 +858,39 @@ mod tests {
         assert!(text.contains('&'));
         assert!(text.contains('*'));
         assert!(text.contains("id: urn:px-occ:"));
+    }
+
+    #[test]
+    fn direct_export_can_unwrap_root_and_exclude_fields() {
+        let solvent = Solvent::new();
+        let shared = solvent.bond("shared".to_string());
+        let root = solvent.add(Pair {
+            left: shared.clone(),
+            right: shared,
+        });
+        let store = MemoryStore::new();
+        let (value_cid, schema_cid) = solvent.persist_cell(&root, &store).unwrap();
+
+        let schemas = Solvent::new();
+        let _ = crate::load_schema_recursive(&store, &schemas, schema_cid).unwrap();
+        let text = export(
+            &store,
+            &schemas,
+            value_cid,
+            schema_cid,
+            ExportFormat::Yaml,
+            &ExportOptions {
+                profile: ExportProfile::Direct,
+                pretty: false,
+                unwrap_top_level_occurrence: true,
+                exclude_top_level_fields: vec!["right".to_string()],
+            },
+        )
+        .unwrap();
+
+        assert!(text.contains("left:"));
+        assert!(!text.contains("\nid:"));
+        assert!(!text.contains("\ndata:"));
+        assert!(!text.contains("\nright:"));
     }
 }

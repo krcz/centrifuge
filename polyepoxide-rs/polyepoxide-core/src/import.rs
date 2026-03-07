@@ -1120,6 +1120,8 @@ mod tests {
             &ExportOptions {
                 profile,
                 pretty: false,
+                unwrap_top_level_occurrence: false,
+                exclude_top_level_fields: Vec::new(),
             },
         )
         .unwrap();
@@ -1301,6 +1303,8 @@ mod tests {
             &ExportOptions {
                 profile: ExportProfile::Full,
                 pretty: false,
+                unwrap_top_level_occurrence: false,
+                exclude_top_level_fields: Vec::new(),
             },
         )
         .unwrap();
