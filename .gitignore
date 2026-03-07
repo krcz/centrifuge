@@ -13,3 +13,8 @@ Thumbs.db
 *.swp
 *.swo
 .*.sw?
+
+# Rust subprojects
+/*-rs/target/
+/*-rs/Cargo.lock
+!/cathinone-rs/Cargo.lock
